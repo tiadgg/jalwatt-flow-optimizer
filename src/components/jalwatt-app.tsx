@@ -15,6 +15,7 @@ import {
   Leaf,
   Menu,
   Network,
+  Play,
   ShieldCheck,
   SlidersHorizontal,
   Thermometer,
@@ -33,6 +34,7 @@ import {
 } from "recharts";
 import { useSettings } from "@/context/settings-context";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import {
   Select,
@@ -255,7 +257,7 @@ export function JalWattApp() {
   );
 }
 
-function DashboardView({ settings, result, selectedCooling, waterSaved, co2Saved, costSaved, chooseSection }: {
+function DashboardView({ settings, result, selectedCooling, chooseSection }: {
   settings: ReturnType<typeof useSettings>["settings"];
   result: ReturnType<typeof useSettings>["result"];
   selectedCooling: ReturnType<typeof useSettings>["settings"]["cooling"][CoolingPreset];
