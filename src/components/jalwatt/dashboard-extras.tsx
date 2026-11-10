@@ -6,14 +6,16 @@ import { Progress } from "@/components/ui/progress";
 import { evaluateJudgeTargets, type JalWattSettings, type SimulationResult } from "@/engine";
 import { AnimatedNumber, chartTooltipStyle, hourLabel } from "./shared";
 
-export function DashboardHero({ result, judgeMode, onToggleJudge, onPlayDemo, demoPlaying }: {
+export function DashboardHero({ result, bestCaseResult, judgeMode, onToggleJudge, onPlayDemo, demoPlaying }: {
   result: SimulationResult;
+  bestCaseResult: SimulationResult | undefined;
   judgeMode: boolean;
   onToggleJudge: () => void;
   onPlayDemo: () => void;
   demoPlaying: boolean;
 }) {
   const waterSaved = Math.max(0, result.baseline.waterL - result.jalwatt.waterL);
+  const bestCaseWaterSaved = bestCaseResult ? Math.max(0, bestCaseResult.baseline.waterL - bestCaseResult.jalwatt.waterL) : waterSaved;
   const sla = result.jalwatt.slaViolations;
   return (
     <section className="hero-panel relative mb-6 overflow-hidden border border-primary/25 p-6 sm:p-8" aria-label="JalWatt overview">
@@ -21,10 +23,11 @@ export function DashboardHero({ result, judgeMode, onToggleJudge, onPlayDemo, de
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary"><span className="size-1.5 rounded-full bg-primary" />Water & energy aware AI scheduling</div>
         <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-normal sm:text-4xl">Cut AI data-center power and water use. <span className="text-primary">Zero SLA violations.</span></h2>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Bengaluru is one of India’s most water-stressed cities, and evaporative cooling drinks litres for every kWh of AI compute — JalWatt routes, reschedules and re-cools that work to save both.</p>
+        {judgeMode && <p className="mt-3 text-xs font-medium text-foreground">Conservative headline · 25% escalation · large/medium/small baseline mix 60/30/10 · liquid cooling</p>}
       </div>
       <div className="relative mt-6 flex flex-wrap gap-3">
-        <HeroStat icon={Zap} label="energy saved" value={<><AnimatedNumber value={result.savingsPct} digits={1} />%</>} />
-        <HeroStat icon={Droplets} label="litres of water saved / day" value={<AnimatedNumber value={waterSaved} digits={1} />} />
+        <HeroStat icon={Zap} label={bestCaseResult ? "energy saved · conservative to best case" : "energy saved"} value={bestCaseResult ? `${result.savingsPct.toFixed(1)}–${bestCaseResult.savingsPct.toFixed(1)}%` : <><AnimatedNumber value={result.savingsPct} digits={1} />%</>} />
+        <HeroStat icon={Droplets} label={bestCaseResult ? "litres saved / day · conservative to best case" : "litres of water saved / day"} value={bestCaseResult ? `${waterSaved.toFixed(0)}–${bestCaseWaterSaved.toFixed(0)}` : <AnimatedNumber value={waterSaved} digits={1} />} />
         <HeroStat icon={ShieldCheck} label="SLA violations" value={<>{sla}</>} tone={sla === 0 ? "ok" : "bad"} />
       </div>
       <div className="relative mt-6 flex flex-wrap gap-2">
@@ -144,7 +147,7 @@ export function JudgePanel({ settings, result, onOpenAssumptions }: { settings: 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold"><Gavel className="size-4 text-primary" />Judge Mode · problem-statement success metrics</div>
-          <div className="mt-1 text-xs text-muted-foreground">Conservative preset: 10/10/80 enterprise mix, modest right-sizing, liquid closed-loop cooling.</div>
+          <div className="mt-1 text-xs text-muted-foreground">Conservative preset: 25% escalation, large/medium/small baseline mix 60/30/10, liquid closed-loop cooling. Best case: 10% escalation, 100% large-model baseline.</div>
         </div>
         <span role="status" className={`inline-flex items-center gap-1.5 border px-2.5 py-1 font-mono text-xs font-semibold ${allMet ? "border-primary/40 bg-primary/10 text-primary" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{allMet ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />}{allMet ? `All ${checks.length} targets met` : `${checks.filter((c) => !c.met).length} target(s) missed`}</span>
       </div>

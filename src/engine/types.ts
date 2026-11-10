@@ -37,6 +37,9 @@ export interface JalWattSettings {
   fieldVoices: FieldQuote[];
   jobsPerDay: number;
   mix: Record<TaskTier, number>;
+  baselineMix: { small: number; medium: number; large: number };
+  averageUtilization: number;
+  escalationRatePct: number;
   deferrablePct: number;
   privacyPinnedPct: number;
   roomKW: number;
@@ -100,11 +103,21 @@ export interface WorkloadGuarantees {
   deadlineMisses: number;
 }
 
+export interface LeverSavings {
+  itKWh: number;
+  facilityKWh: number;
+  waterL: number;
+  co2Kg: number;
+  costINR: number;
+  savingsPct: number;
+}
+
 export interface SimulationResult {
   guarantees: WorkloadGuarantees;
   baseline: RunTotals;
   jalwatt: RunTotals;
   savingsPct: number;
+  savingsByLever: { routing: LeverSavings; timeShifting: LeverSavings; cooling: LeverSavings };
   hourlyProfile: HourlyProfile[];
   decisionLog: DecisionLogItem[];
 }

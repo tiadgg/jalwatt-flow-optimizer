@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, evaluateJudgeTargets, judgeScenario, PEAK_TEST, runPeakLoad, runSimulation } from "@/engine";
+import { bestCaseScenario, DEFAULT_SETTINGS, evaluateJudgeTargets, judgeScenario, PEAK_TEST, runPeakLoad, runSimulation } from "@/engine";
 import { buildSampleTelemetryCsv, parseTelemetryCsv } from "@/lib/telemetry-csv";
 
 describe("peak load test", () => {
@@ -12,12 +12,12 @@ describe("peak load test", () => {
     expect(peak.steps[0]!.jobs * 4).toBeCloseTo(result.hourlyProfile[firstHour]!.baselineJobs * 2, 6);
   });
 
-  it("passes with 0 crashes, 0 SLA violations and 0 throttling at defaults", () => {
+  it("reports overload when the 2x workload exceeds the 50 kW rack", () => {
     const peak = runPeakLoad(DEFAULT_SETTINGS, runSimulation(DEFAULT_SETTINGS));
     expect(peak.serverCrashes).toBe(0);
-    expect(peak.slaViolations).toBe(0);
+    expect(peak.slaViolations).toBeGreaterThan(0);
     expect(peak.throttlingEvents).toBe(0);
-    expect(peak.pass).toBe(true);
+    expect(peak.pass).toBe(false);
   });
 
   it("fails when ambient heat erodes thermal headroom", () => {
@@ -29,15 +29,28 @@ describe("peak load test", () => {
 });
 
 describe("Judge Mode preset", () => {
-  it("hits PUE < 1.2, WUE < 0.2, a 20–30% energy saving and 0 SLA violations", () => {
+  it("uses the requested conservative assumptions and marks only met targets", () => {
     const settings = judgeScenario(DEFAULT_SETTINGS);
     const result = runSimulation(settings);
+    const checks = evaluateJudgeTargets(settings, result);
     expect(settings.cooling[settings.selectedCooling].pue).toBeLessThan(1.2);
     expect(settings.cooling[settings.selectedCooling].wue).toBeLessThan(0.2);
-    expect(result.savingsPct).toBeGreaterThanOrEqual(20);
-    expect(result.savingsPct).toBeLessThanOrEqual(30);
+    expect(settings.escalationRatePct).toBe(25);
+    expect(settings.baselineMix).toEqual({ small: 10, medium: 30, large: 60 });
+    expect(result.savingsPct).toBeGreaterThan(30);
     expect(result.jalwatt.slaViolations).toBe(0);
-    expect(evaluateJudgeTargets(settings, result).every((check) => check.met)).toBe(true);
+    expect(checks.find((check) => check.label === "Energy saving vs baseline")?.met).toBe(false);
+    expect(checks.find((check) => check.label === "Power usage effectiveness")?.met).toBe(true);
+    expect(checks.find((check) => check.label === "Water usage effectiveness")?.met).toBe(true);
+    expect(checks.every((check) => check.met === (check.label === "Energy saving vs baseline" ? false : true))).toBe(true);
+  });
+
+  it("sets the best case to 10% escalation and a 100% large-model baseline", () => {
+    const conservative = judgeScenario(DEFAULT_SETTINGS);
+    const bestCase = bestCaseScenario(conservative);
+    expect(bestCase.escalationRatePct).toBe(10);
+    expect(bestCase.baselineMix).toEqual({ small: 0, medium: 0, large: 100 });
+    expect(runSimulation(bestCase).savingsPct).toBeGreaterThan(runSimulation(conservative).savingsPct);
   });
 });
 

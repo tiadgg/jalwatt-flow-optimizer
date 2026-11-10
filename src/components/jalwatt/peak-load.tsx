@@ -70,14 +70,14 @@ export function PeakLoadPanel({ settings, result }: { settings: JalWattSettings;
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 border border-border p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-medium">Watts per task over the peak</div><span className="font-mono text-[10px] text-muted-foreground">facility Wh / task · 15-min steps</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-medium">Facility energy per task over the peak</div><span className="font-mono text-[10px] text-muted-foreground">Wh / task · 15-min steps</span></div>
           <div className="mt-3 h-[230px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 5" vertical={false} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} stroke="var(--color-muted-foreground)" fontSize={10} interval={3} />
                 <YAxis tickLine={false} axisLine={false} stroke="var(--color-muted-foreground)" fontSize={10} width={44} domain={[0, "auto"]} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => [`${Number(value).toFixed(2)} W / task`, name]} />
+                <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => [`${Number(value).toFixed(2)} Wh / task`, name]} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Line type="monotone" dataKey="baseline" name="Baseline" stroke="var(--color-chart-2)" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls={false} />
                 <Line type="monotone" dataKey="jalwatt" name="JalWatt" stroke="var(--color-chart-1)" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls={false} />

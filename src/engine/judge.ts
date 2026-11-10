@@ -3,22 +3,27 @@ import type { JalWattSettings, SimulationResult } from "./types";
 /** Problem-statement success targets. */
 export const JUDGE_TARGETS = { maxPUE: 1.2, maxWUE: 0.2, minSavingsPct: 20, maxSavingsPct: 30 } as const;
 
-/**
- * Conservative judging scenario: hard-heavy enterprise mix, modest right-sizing gains
- * and liquid closed-loop cooling, so the saving lands inside the 20–30% target band.
- */
+/** Conservative judging scenario; energy weights remain the user's measured assumptions. */
 export function judgeScenario(current: JalWattSettings): JalWattSettings {
   return {
     ...current,
     jobsPerDay: 5000,
-    mix: { easy: 10, medium: 10, hard: 80 },
-    energyWh: { small: 3.5, medium: 5, large: 6 },
+    baselineMix: { small: 10, medium: 30, large: 60 },
+    escalationRatePct: 25,
     deferrablePct: 40,
     privacyPinnedPct: 15,
     deadlineHours: 6,
     selectedCooling: "liquid",
     cooling: { ...current.cooling, liquid: { pue: 1.15, wue: 0.1 } },
     telemetry: null,
+  };
+}
+
+export function bestCaseScenario(current: JalWattSettings): JalWattSettings {
+  return {
+    ...current,
+    baselineMix: { small: 0, medium: 0, large: 100 },
+    escalationRatePct: 10,
   };
 }
 

@@ -5,6 +5,7 @@ import type {
   RunTotals,
   SimulationResult,
   TaskTier,
+  LeverSavings,
   WorkloadGuarantees,
 } from "./types";
 
@@ -23,6 +24,20 @@ function chooseTier(random: () => number, settings: JalWattSettings): TaskTier {
   if (threshold < settings.mix.easy) return "easy";
   if (threshold < settings.mix.easy + settings.mix.medium) return "medium";
   return "hard";
+}
+
+function chooseBaselineTier(random: () => number, settings: JalWattSettings): TaskTier {
+  const { small, medium, large } = settings.baselineMix;
+  const total = Math.max(0, small) + Math.max(0, medium) + Math.max(0, large);
+  if (total <= 0) return "hard";
+  const threshold = random() * total;
+  if (threshold < Math.max(0, small)) return "easy";
+  if (threshold < Math.max(0, small) + Math.max(0, medium)) return "medium";
+  return "hard";
+}
+
+function nextTier(tier: TaskTier): TaskTier {
+  return tier === "easy" ? "medium" : "hard";
 }
 
 function hourScore(settings: JalWattSettings, hour: number) {
@@ -64,7 +79,13 @@ function totals(itByHour: number[], settings: JalWattSettings, pue: number, wue:
 
 const zeros = () => Array.from({ length: 24 }, () => 0);
 
-export function runSimulation(settings: JalWattSettings): SimulationResult {
+interface ScenarioOptions {
+  routing: boolean;
+  timeShifting: boolean;
+  cooling: boolean;
+}
+
+function simulateScenario(settings: JalWattSettings, options: ScenarioOptions) {
   const random = seededRandom(settings.seed);
   const baselineIt = zeros();
   const jalwattIt = zeros();
@@ -88,23 +109,27 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
   };
   const pinnedPct = Math.max(0, Math.min(100, settings.privacyPinnedPct));
   const deferrablePct = Math.max(0, Math.min(100 - pinnedPct, settings.deferrablePct));
-  const largeWh = settings.energyWh.large;
   const telemetry = settings.telemetry && settings.telemetry.length > 0 ? settings.telemetry : null;
+  const tasks: { arrival: number; tier: TaskTier; baselineTier: TaskTier; rawWh: number; escalation: boolean; pinned: boolean; deferrable: boolean; rowItKWh?: number }[] = [];
+  const baselineWhByTier = {
+    easy: Math.max(0, settings.energyWh.small),
+    medium: Math.max(0, settings.energyWh.medium),
+    hard: Math.max(0, settings.energyWh.large),
+  };
 
-  const processJob = (arrival: number, tier: TaskTier, baselineWh: number) => {
-    const classification = random() * 100;
-    const pinned = classification < pinnedPct;
-    const deferrable = !pinned && classification < pinnedPct + deferrablePct;
-    const tierWh =
-      tier === "easy" ? settings.energyWh.small : tier === "medium" ? settings.energyWh.medium : settings.energyWh.large;
-    // With telemetry, the measured per-job energy is the baseline and right-sizing scales it by the tier ratio.
-    const jalwattWh = largeWh > 0 ? baselineWh * (tierWh / largeWh) : tierWh;
-    const runHour = deferrable ? scheduledHour(random, arrival, settings) : arrival;
+  const processJob = (arrival: number, tier: TaskTier, baselineTier: TaskTier, baselineWh: number, escalation: boolean, pinned: boolean, deferrable: boolean) => {
+    const routedTier = options.routing ? tier : baselineTier;
+    const tierWh = baselineWhByTier[routedTier];
+    const escalationWh = options.routing && escalation ? baselineWhByTier[nextTier(routedTier)] : 0;
+    const baselineModelWh = baselineWhByTier[baselineTier];
+    const modelRatio = baselineModelWh > 0 ? (tierWh + escalationWh) / baselineModelWh : 1;
+    const jalwattWh = baselineWh * modelRatio;
+    const runHour = options.timeShifting && deferrable ? scheduledHour(random, arrival, settings) : arrival;
     baselineIt[arrival] = (baselineIt[arrival] ?? 0) + baselineWh / 1000;
     jalwattIt[runHour] = (jalwattIt[runHour] ?? 0) + jalwattWh / 1000;
     baselineJobs[arrival] = (baselineJobs[arrival] ?? 0) + 1;
     jalwattJobs[runHour] = (jalwattJobs[runHour] ?? 0) + 1;
-    if (tier !== "hard") routedJobs[runHour] = (routedJobs[runHour] ?? 0) + 1;
+    if (routedTier !== "hard") routedJobs[runHour] = (routedJobs[runHour] ?? 0) + 1;
 
     guarantees.totalJobs += 1;
     if (pinned) {
@@ -118,7 +143,7 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
       if (runHour > arrival) guarantees.urgentDelayed += 1;
     }
 
-    const bucket = perTier[tier];
+    const bucket = perTier[routedTier];
     bucket.count += 1;
     bucket.baselineWh += baselineWh;
     bucket.jalwattWh += jalwattWh;
@@ -129,6 +154,7 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
     }
   };
 
+  const escalationRate = Math.max(0, Math.min(100, settings.escalationRatePct));
   if (telemetry) {
     telemetry.forEach((row) => {
       const hour = Math.max(0, Math.min(23, Math.floor(row.hour)));
@@ -140,22 +166,72 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
         jalwattIt[hour] = (jalwattIt[hour] ?? 0) + itKWh;
         return;
       }
-      const perJobWh = (itKWh * 1000) / jobs;
-      for (let index = 0; index < jobs; index += 1) processJob(hour, chooseTier(random, settings), perJobWh);
+      const rowTasks = Array.from({ length: jobs }, () => {
+        const baselineTier = chooseBaselineTier(random, settings);
+        const tier = chooseTier(random, settings);
+        const escalation = tier !== "hard" && random() * 100 < escalationRate;
+        const classification = random() * 100;
+        const pinned = classification < pinnedPct;
+        const deferrable = !pinned && classification < pinnedPct + deferrablePct;
+        return { baselineTier, tier, rawWh: baselineWhByTier[baselineTier], escalation, pinned, deferrable };
+      });
+      tasks.push(...rowTasks.map((task) => ({ ...task, arrival: hour, rowItKWh: itKWh })));
     });
   } else {
     const jobs = Math.max(0, Math.floor(settings.jobsPerDay));
     for (let index = 0; index < jobs; index += 1) {
       const tier = chooseTier(random, settings);
+      const baselineTier = chooseBaselineTier(random, settings);
       const arrival = Math.min(23, Math.floor(random() * 24));
-      processJob(arrival, tier, largeWh);
+      const escalation = tier !== "hard" && random() * 100 < escalationRate;
+      const classification = random() * 100;
+      const pinned = classification < pinnedPct;
+      const deferrable = !pinned && classification < pinnedPct + deferrablePct;
+      tasks.push({
+        arrival,
+        tier,
+        baselineTier,
+        rawWh: baselineWhByTier[baselineTier],
+        escalation,
+        pinned,
+        deferrable,
+      });
+    }
+  }
+
+  if (telemetry) {
+    const telemetryRows = new Map<number, typeof tasks>();
+    tasks.forEach((task) => {
+      const rowTasks = telemetryRows.get(task.arrival) ?? [];
+      rowTasks.push(task);
+      telemetryRows.set(task.arrival, rowTasks);
+    });
+    telemetryRows.forEach((rowTasks, hour) => {
+      const rowItKWh = rowTasks[0]?.rowItKWh ?? 0;
+      const rowRawWh = rowTasks.reduce((sum, task) => sum + task.rawWh, 0);
+      rowTasks.forEach((task) => {
+        const baselineWh = rowRawWh > 0 ? (rowItKWh * 1000 * task.rawWh) / rowRawWh : 0;
+        processJob(hour, task.tier, task.baselineTier, baselineWh, task.escalation, task.pinned, task.deferrable);
+      });
+    });
+  } else {
+    const rawDailyWh = tasks.reduce((sum, task) => sum + task.rawWh, 0);
+    const dailyItKWh = Math.max(0, settings.roomKW) * 24 * settings.averageUtilization;
+    const scale = rawDailyWh > 0 ? (dailyItKWh * 1000) / rawDailyWh : 0;
+    tasks.forEach((task) => processJob(task.arrival, task.tier, task.baselineTier, task.rawWh * scale, task.escalation, task.pinned, task.deferrable));
+    if (tasks.length === 0) {
+      for (let hour = 0; hour < 24; hour += 1) {
+        const idleKWh = dailyItKWh / 24;
+        baselineIt[hour] = idleKWh;
+        jalwattIt[hour] = idleKWh;
+      }
     }
   }
   guarantees.shiftedJobs = moved.count;
 
   const slaViolations = guarantees.pinnedMoved + guarantees.urgentDelayed + guarantees.deadlineMisses;
   const baselineCooling = settings.cooling.evaporative;
-  const selectedCooling = settings.cooling[settings.selectedCooling];
+  const selectedCooling = settings.cooling[options.cooling ? settings.selectedCooling : "evaporative"];
   const baseline = totals(baselineIt, settings, baselineCooling.pue, baselineCooling.wue, 0);
   const jalwatt = totals(jalwattIt, settings, selectedCooling.pue, selectedCooling.wue, slaViolations);
   const hourlyProfile: HourlyProfile[] = Array.from({ length: 24 }, (_, hour) => ({
@@ -218,4 +294,31 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
   const savingsPct =
     baseline.facilityKWh > 0 ? ((baseline.facilityKWh - jalwatt.facilityKWh) / baseline.facilityKWh) * 100 : 0;
   return { guarantees, baseline, jalwatt, savingsPct, hourlyProfile, decisionLog };
+}
+
+function leverSavings(baseline: SimulationResult["baseline"], optimized: SimulationResult["jalwatt"]): LeverSavings {
+  const facilityKWh = baseline.facilityKWh - optimized.facilityKWh;
+  return {
+    itKWh: baseline.itKWh - optimized.itKWh,
+    facilityKWh,
+    waterL: baseline.waterL - optimized.waterL,
+    co2Kg: baseline.co2Kg - optimized.co2Kg,
+    costINR: baseline.costINR - optimized.costINR,
+    savingsPct: baseline.facilityKWh > 0 ? (facilityKWh / baseline.facilityKWh) * 100 : 0,
+  };
+}
+
+export function runSimulation(settings: JalWattSettings): SimulationResult {
+  const result = simulateScenario(settings, { routing: true, timeShifting: true, cooling: true });
+  const routing = simulateScenario(settings, { routing: true, timeShifting: false, cooling: false });
+  const timeShifting = simulateScenario(settings, { routing: false, timeShifting: true, cooling: false });
+  const cooling = simulateScenario(settings, { routing: false, timeShifting: false, cooling: true });
+  return {
+    ...result,
+    savingsByLever: {
+      routing: leverSavings(routing.baseline, routing.jalwatt),
+      timeShifting: leverSavings(timeShifting.baseline, timeShifting.jalwatt),
+      cooling: leverSavings(cooling.baseline, cooling.jalwatt),
+    },
+  };
 }

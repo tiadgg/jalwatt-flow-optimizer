@@ -5,10 +5,10 @@ import { buildAssumptionRows, type AssumptionStatus } from "@/lib/assumptions";
 import { PanelHeading, StatusTag } from "./shared";
 
 const METHOD = [
-  ["Baseline", "Every task runs on the large model at its arrival hour with evaporative cooling."],
-  ["JalWatt", "Easy → small model, medium → medium, hard → large. Deferrable jobs move to the cheapest/coolest hour before their deadline; privacy-pinned jobs stay local; urgent jobs are never delayed."],
+  ["Baseline", "Tasks use the configured small/medium/large model mix at their arrival hour with evaporative cooling. Total synthetic IT energy is room kW × 24 × utilization."],
+  ["JalWatt", "Easy → small model, medium → medium, hard → large. A configurable share of small/medium routes rerun on the next larger model. Deferrable jobs move before their deadline; pinned jobs stay local; urgent jobs are never delayed."],
   ["Formulas", "Facility kWh = IT kWh × PUE · Water L = IT kWh × WUE · CO₂ = facility kWh × grid factor · Cost = Σ hourly facility kWh × tariff."],
-  ["Telemetry", "When a CSV is uploaded, measured IT kWh per hour is the baseline and right-sizing scales each job by its model's energy ratio to the large model."],
+  ["Telemetry", "When a CSV is uploaded, measured IT kWh per hour is the baseline and model energy weights are normalized to that hourly total."],
 ];
 
 export function AssumptionsView({ settings }: { settings: JalWattSettings }) {
