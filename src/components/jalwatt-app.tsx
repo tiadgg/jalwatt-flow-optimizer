@@ -394,7 +394,7 @@ function SimulatorView({ settings, updateSettings }: { settings: ReturnType<type
 
 function SchedulerView({ settings, updateSettings, result }: { settings: ReturnType<typeof useSettings>["settings"]; updateSettings: ReturnType<typeof useSettings>["updateSettings"]; result: ReturnType<typeof useSettings>["result"] }) {
   const [actionFilter, setActionFilter] = useState("All actions");
-  const actionType = (jobGroup: string) => jobGroup.includes("model routing") ? "Model routing" : jobGroup.includes("workload") ? "Scheduling" : jobGroup.includes("Cooling") ? "Cooling" : "Policy";
+  const actionType = (jobGroup: string) => jobGroup.includes("Privacy") ? "Policy" : jobGroup.includes("model routing") ? "Model routing" : jobGroup.includes("workload") ? "Scheduling" : jobGroup.includes("Cooling") ? "Cooling" : "Policy";
   const decisions = result.decisionLog.filter((item) => actionFilter === "All actions" || actionType(item.jobGroup) === actionFilter);
   const hasViolations = result.jalwatt.slaViolations > 0;
   return <><PanelHeading eyebrow="Queue policy" title="Flexible workload scheduler" description="Move eligible work into favorable windows without delaying urgent or privacy-sensitive tasks." />
