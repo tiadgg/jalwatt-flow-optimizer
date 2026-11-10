@@ -15,16 +15,17 @@ import {
   Leaf,
   Menu,
   Network,
-  Play,
   ShieldCheck,
   SlidersHorizontal,
   Thermometer,
   Zap,
 } from "lucide-react";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,7 +33,7 @@ import {
 } from "recharts";
 import { useSettings } from "@/context/settings-context";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -40,7 +41,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { CoolingPreset } from "@/engine";
+import { DEFAULT_SETTINGS, type CoolingPreset } from "@/engine";
+import { toHouseholdDailyWaterEquivalents } from "@/lib/dashboard-metrics";
 
 const sections = [
   { label: "Dashboard", icon: BarChart3 },
@@ -62,14 +64,14 @@ function Metric({
   label,
   value,
   unit,
-  change,
+  savingsPct,
   icon: Icon,
   tone = "text-primary",
 }: {
   label: string;
   value: string;
   unit: string;
-  change: string;
+  savingsPct: number;
   icon: typeof Zap;
   tone?: string;
 }) {
@@ -83,15 +85,21 @@ function Metric({
         <span className="font-mono text-2xl font-semibold tabular-nums tracking-normal sm:text-3xl">{value}</span>
         <span className="text-xs text-muted-foreground">{unit}</span>
       </div>
-      <div className="mt-3 flex items-center gap-1 text-xs text-primary">
-        <ArrowDownRight className="size-3.5" />
-        <span>{change} vs baseline</span>
+      <div className="mt-3">
+        <span className="inline-flex items-center gap-1 rounded-sm bg-primary/10 px-2 py-1 text-[10px] font-medium tabular-nums text-primary">
+          <ArrowDownRight className="size-3" />
+          {`${Math.max(0, savingsPct).toFixed(1)}% saved`}
+        </span>
       </div>
     </div>
   );
 }
 
-function NumberField({
+function AssumptionTag() {
+  return <span className="inline-flex shrink-0 items-center border border-border px-1.5 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">Assumption</span>;
+}
+
+function SliderField({
   label,
   value,
   suffix,
@@ -109,22 +117,14 @@ function NumberField({
   onChange: (next: number) => void;
 }) {
   return (
-    <label className="grid gap-2 text-sm text-muted-foreground">
-      <span>{label}</span>
-      <span className="flex items-center gap-2">
-        <Input
-          aria-label={label}
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => onChange(Number(event.target.value))}
-          className="h-10 font-mono text-foreground"
-        />
-        {suffix && <span className="min-w-12 text-xs">{suffix}</span>}
-      </span>
-    </label>
+    <div className="grid gap-3 text-sm text-muted-foreground">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs">{label}</label>
+        <div className="flex items-center gap-2"><AssumptionTag /><output className="min-w-16 text-right font-mono text-sm tabular-nums text-foreground">{value.toLocaleString("en-IN")}{suffix ? ` ${suffix}` : ""}</output></div>
+      </div>
+      <Slider aria-label={label} min={min} max={max} step={step} value={[value]} onValueChange={(values) => { const next = values[0]; if (next !== undefined) onChange(next); }} />
+      <div className="flex justify-between text-[10px] tabular-nums text-muted-foreground"><span>{min.toLocaleString("en-IN")}{suffix ? ` ${suffix}` : ""}</span><span>{max.toLocaleString("en-IN")}{suffix ? ` ${suffix}` : ""}</span></div>
+    </div>
   );
 }
 
@@ -179,10 +179,6 @@ export function JalWattApp() {
   };
 
   const selectedCooling = settings.cooling[settings.selectedCooling];
-  const waterSaved = result.baseline.waterL - result.jalwatt.waterL;
-  const co2Saved = result.baseline.co2Kg - result.jalwatt.co2Kg;
-  const costSaved = result.baseline.costINR - result.jalwatt.costINR;
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
@@ -241,7 +237,7 @@ export function JalWattApp() {
         {mobileNavOpen && <nav className="grid grid-cols-2 gap-1 border-b border-border bg-sidebar p-3 sm:grid-cols-4 lg:hidden" aria-label="Mobile navigation">{sections.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="sm" onClick={() => chooseSection(label)} className={active === label ? "bg-sidebar-accent text-sidebar-accent-foreground" : "justify-start"}><Icon className="size-4" />{label}</Button>)}</nav>}
 
         <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          {active === "Dashboard" && <DashboardView {...{ settings, result, selectedCooling, waterSaved, co2Saved, costSaved, chooseSection }} />}
+          {active === "Dashboard" && <DashboardView {...{ settings, result, selectedCooling, chooseSection }} />}
           {active === "Simulator" && <SimulatorView {...{ settings, updateSettings }} />}
           {active === "Scheduler" && <SchedulerView {...{ settings, updateSettings, result }} />}
           {active === "Cooling & ROI" && <CoolingView {...{ settings, updateSettings, result, selectedCooling }} />}
@@ -263,38 +259,78 @@ function DashboardView({ settings, result, selectedCooling, waterSaved, co2Saved
   settings: ReturnType<typeof useSettings>["settings"];
   result: ReturnType<typeof useSettings>["result"];
   selectedCooling: ReturnType<typeof useSettings>["settings"]["cooling"][CoolingPreset];
-  waterSaved: number;
-  co2Saved: number;
-  costSaved: number;
   chooseSection: (section: Section) => void;
 }) {
+  const [comparison, setComparison] = useState<"baseline" | "jalwatt">("jalwatt");
+  const baseline = result.baseline;
+  const optimized = result.jalwatt;
+  const current = comparison === "baseline" ? baseline : optimized;
+  const waterSaved = baseline.waterL - optimized.waterL;
+  const baselineCooling = settings.cooling.evaporative;
+  const householdLine = result.hourlyProfile.map((hour) => {
+    const hourWaterSaved = (hour.baselineKWh / baselineCooling.pue) * baselineCooling.wue -
+      (hour.jalwattKWh / selectedCooling.pue) * selectedCooling.wue;
+    return { hour: hour.hour, households: toHouseholdDailyWaterEquivalents(hourWaterSaved) };
+  }).reduce<{ hour: number; households: number }[]>((points, point) => {
+    const prior = points[points.length - 1]?.households ?? 0;
+    points.push({ hour: point.hour, households: prior + point.households });
+    return points;
+  }, []);
+  const savingsPercent = (base: number, optimizedValue: number) => base > 0 ? ((base - optimizedValue) / base) * 100 : 0;
+  const averageWatts = (itKWh: number) => settings.jobsPerDay > 0 ? (itKWh * 1000) / settings.jobsPerDay : 0;
+  const metrics = [
+    { label: "Energy", value: current.facilityKWh.toFixed(1), unit: "kWh / day", savings: savingsPercent(baseline.facilityKWh, optimized.facilityKWh), icon: Zap, tone: "text-primary" },
+    { label: "Water", value: current.waterL.toFixed(1), unit: "litres / day", savings: savingsPercent(baseline.waterL, optimized.waterL), icon: Droplets, tone: "text-chart-2" },
+    { label: "CO₂", value: current.co2Kg.toFixed(1), unit: "kg / day", savings: savingsPercent(baseline.co2Kg, optimized.co2Kg), icon: Leaf, tone: "text-chart-3" },
+    { label: "Cost", value: money(current.costINR), unit: "INR / day", savings: savingsPercent(baseline.costINR, optimized.costINR), icon: BatteryCharging, tone: "text-chart-4" },
+    { label: "Watts per task", value: averageWatts(current.itKWh).toFixed(2), unit: "W / task", savings: savingsPercent(averageWatts(baseline.itKWh), averageWatts(optimized.itKWh)), icon: Cpu, tone: "text-chart-5" },
+    { label: "SLA violations", value: current.slaViolations.toLocaleString("en-IN"), unit: "per day", savings: savingsPercent(baseline.slaViolations, optimized.slaViolations), icon: ShieldCheck, tone: "text-primary" },
+  ];
+  const totalHouseholds = toHouseholdDailyWaterEquivalents(waterSaved);
+
   return <>
     <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-      <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary"><span className="size-1.5 rounded-full bg-primary" /> Daily scenario · {settings.city}</div><h2 className="mt-2 text-2xl font-semibold tracking-normal sm:text-3xl">Operational overview</h2><p className="mt-1 text-sm text-muted-foreground">A 24-hour forecast for agentic AI compute and cooling.</p></div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="border border-border bg-card px-3 py-2 font-mono">{settings.jobsPerDay.toLocaleString("en-IN")} jobs / day</span><span className="border border-border bg-card px-3 py-2">{settings.selectedCooling} cooling</span></div>
+      <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary"><span className="size-1.5 rounded-full bg-primary" /> Daily scenario · {settings.city}</div><h2 className="mt-2 text-2xl font-semibold tracking-normal sm:text-3xl">Operational overview</h2><p className="mt-1 text-sm text-muted-foreground">Daily resource use and schedule impact for agentic AI compute.</p></div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Compare scenario" className="inline-flex border border-border bg-card p-1">
+          <Button variant={comparison === "baseline" ? "secondary" : "ghost"} size="sm" aria-pressed={comparison === "baseline"} onClick={() => setComparison("baseline")} className="h-8 rounded-sm px-3 text-xs">Baseline</Button>
+          <Button variant={comparison === "jalwatt" ? "secondary" : "ghost"} size="sm" aria-pressed={comparison === "jalwatt"} onClick={() => setComparison("jalwatt")} className="h-8 rounded-sm px-3 text-xs">JalWatt</Button>
+        </div>
+        <span className="border border-border bg-card px-3 py-2 font-mono text-xs text-muted-foreground">{settings.jobsPerDay.toLocaleString("en-IN")} jobs / day</span>
+      </div>
     </div>
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="Facility energy" value={result.jalwatt.facilityKWh.toFixed(1)} unit="kWh / day" change={`${result.savingsPct.toFixed(1)}%`} icon={Zap} />
-      <Metric label="Water use" value={result.jalwatt.waterL.toFixed(1)} unit="L / day" change={`${Math.max(0, waterSaved).toFixed(1)} L`} icon={Droplets} tone="text-chart-2" />
-      <Metric label="Carbon avoided" value={Math.max(0, co2Saved).toFixed(1)} unit="kg CO₂ / day" change={`${result.baseline.co2Kg > 0 ? (Math.max(0, co2Saved) / result.baseline.co2Kg * 100).toFixed(1) : "0.0"}%`} icon={Leaf} tone="text-chart-3" />
-      <Metric label="Daily cost avoided" value={formatCompact(Math.max(0, costSaved))} unit="INR / day" change={money(Math.max(0, costSaved))} icon={BatteryCharging} tone="text-chart-4" />
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      {metrics.map(({ label, value, unit, savings, icon, tone }) => <Metric key={label} label={label} value={value} unit={unit} savingsPct={savings} icon={icon} tone={tone} />)}
     </div>
 
-    <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(280px,0.8fr)]">
-      <section className="border border-border bg-card p-4 sm:p-5" aria-label="Hourly energy profile">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-semibold">Hourly facility load</div><div className="mt-1 text-xs text-muted-foreground">Baseline vs JalWatt · kWh by hour</div></div><div className="flex gap-4 text-[11px]"><span className="flex items-center gap-2 text-muted-foreground"><i className="size-2 rounded-full bg-chart-2" />Baseline</span><span className="flex items-center gap-2 text-primary"><i className="size-2 rounded-full bg-primary" />JalWatt</span></div></div>
+    <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.8fr)]">
+      <section className="border border-border bg-card p-4 sm:p-5" aria-label="Grouped hourly facility energy comparison">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-semibold">Hourly facility energy</div><div className="mt-1 text-xs text-muted-foreground">Baseline vs JalWatt · grouped kWh by hour</div></div><div className="flex gap-4 text-[11px]"><span className="flex items-center gap-2 text-muted-foreground"><i className="size-2 bg-chart-2" />Baseline</span><span className="flex items-center gap-2 text-primary"><i className="size-2 bg-primary" />JalWatt</span></div></div>
         <div className="mt-5 h-[270px] w-full">
-          <ResponsiveContainer width="100%" height="100%"><AreaChart data={result.hourlyProfile} margin={{ top: 10, right: 8, left: -15, bottom: 0 }}>
-            <defs><linearGradient id="jalwattFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--color-chart-1)" stopOpacity={0.27} /><stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0} /></linearGradient><linearGradient id="baselineFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--color-chart-2)" stopOpacity={0.2} /><stop offset="95%" stopColor="var(--color-chart-2)" stopOpacity={0} /></linearGradient></defs>
+          <ResponsiveContainer width="100%" height="100%"><BarChart data={result.hourlyProfile} margin={{ top: 8, right: 8, left: -15, bottom: 0 }}>
             <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 5" vertical={false} />
             <XAxis dataKey="hour" tickFormatter={(hour) => `${String(hour).padStart(2, "0")}`} tickLine={false} axisLine={false} stroke="var(--color-muted-foreground)" fontSize={11} interval={2} />
             <YAxis tickLine={false} axisLine={false} stroke="var(--color-muted-foreground)" fontSize={11} width={48} />
             <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: "4px", color: "var(--color-foreground)" }} labelFormatter={(hour) => `${String(hour).padStart(2, "0")}:00`} formatter={(value, name) => [`${Number(value).toFixed(3)} kWh`, name === "baselineKWh" ? "Baseline" : "JalWatt"]} />
-            <Area type="monotone" dataKey="baselineKWh" stroke="var(--color-chart-2)" strokeWidth={1.5} fill="url(#baselineFill)" />
-            <Area type="monotone" dataKey="jalwattKWh" stroke="var(--color-chart-1)" strokeWidth={2} fill="url(#jalwattFill)" />
-          </AreaChart></ResponsiveContainer>
+            <Bar dataKey="baselineKWh" name="Baseline" fill="var(--color-chart-2)" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="jalwattKWh" name="JalWatt" fill="var(--color-chart-1)" radius={[2, 2, 0, 0]} />
+          </BarChart></ResponsiveContainer>
         </div>
-        <div className="flex items-center justify-between border-t border-border pt-3 text-[11px] text-muted-foreground"><span>Lowest tariff window</span><span className="font-mono text-foreground">21:00 — 08:00 · ₹6.50 / kWh</span></div>
+        <div className="flex items-center justify-between border-t border-border pt-3 text-[11px] text-muted-foreground"><span>24-hour forecast</span><span className="font-mono text-foreground">{settings.deadlineHours}h flexible window</span></div>
+      </section>
+      <section className="border border-border bg-card p-4 sm:p-5" aria-label="Household water equivalence">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-semibold">Water saved, in households</div><div className="mt-1 text-xs text-muted-foreground">Cumulative daily water savings</div></div><div className="font-mono text-lg tabular-nums text-primary">{totalHouseholds.toFixed(2)} <span className="text-xs font-sans text-muted-foreground">households</span></div></div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground"><span>Equivalent to daily water use · 135 L/person/day</span><AssumptionTag /><span>4 people/household</span><AssumptionTag /></div>
+        <div className="mt-5 h-[235px] w-full">
+          <ResponsiveContainer width="100%" height="100%"><LineChart data={householdLine} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+            <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 5" vertical={false} />
+            <XAxis dataKey="hour" tickFormatter={(hour) => `${String(hour).padStart(2, "0")}`} tickLine={false} axisLine={false} stroke="var(--color-muted-foreground)" fontSize={11} interval={3} />
+            <YAxis tickLine={false} axisLine={false} stroke="var(--color-muted-foreground)" fontSize={11} width={48} />
+            <Tooltip contentStyle={{ background: "var(--color-popover)", border: "1px solid var(--color-border)", borderRadius: "4px", color: "var(--color-foreground)" }} labelFormatter={(hour) => `${String(hour).padStart(2, "0")}:00`} formatter={(value) => [`${Number(value).toFixed(3)} households`, "Daily water equivalent"]} />
+            <Line type="monotone" dataKey="households" name="Households" stroke="var(--color-chart-1)" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+          </LineChart></ResponsiveContainer>
+        </div>
+        <div className="border-t border-border pt-3 text-[11px] leading-5 text-muted-foreground">Equivalent to {totalHouseholds.toFixed(2)} households’ daily water use.</div>
       </section>
       <section className="border border-border bg-card p-4 sm:p-5">
         <div className="flex items-center justify-between"><div><div className="text-sm font-semibold">Scenario health</div><div className="mt-1 text-xs text-muted-foreground">Current operating profile</div></div><ShieldCheck className="size-4 text-primary" /></div>
