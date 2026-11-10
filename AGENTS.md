@@ -28,3 +28,7 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Application structure
+
+- Keep workload simulation deterministic and side-effect-free in `src/engine`; expose shared scenario state through a client-side React context, because JalWatt is intentionally backend-free.
