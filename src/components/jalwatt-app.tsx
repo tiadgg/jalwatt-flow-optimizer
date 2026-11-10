@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   Activity,
   ArrowDownRight,
@@ -25,6 +25,8 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -43,8 +45,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DEFAULT_SETTINGS, type CoolingPreset } from "@/engine";
+import {
+  calculateCoolingImpact,
+  calculateCoolingPayback,
+  calculateSaasBenefit,
+  CITY_NAMES,
+  DEFAULT_SETTINGS,
+  waterWeightedImpact,
+  type CityName,
+  type CoolingPreset,
+  type WaterStressLevel,
+} from "@/engine";
 import { toHouseholdDailyWaterEquivalents } from "@/lib/dashboard-metrics";
+import { Textarea } from "@/components/ui/textarea";
 
 const sections = [
   { label: "Dashboard", icon: BarChart3 },
@@ -141,15 +154,9 @@ function PanelHeading({ eyebrow, title, description }: { eyebrow: string; title:
 }
 
 export function JalWattApp() {
-  const { settings, updateSettings, updateHour, result } = useSettings();
+  const { settings, updateSettings, updateHour, updateCityProfile, updateFieldVoice, result } = useSettings();
   const [active, setActive] = useState<Section>("Dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [simulatedJobs, setSimulatedJobs] = useState<number | null>(null);
-
-  const displayed = useMemo(() => {
-    if (simulatedJobs === null || simulatedJobs === settings.jobsPerDay) return result;
-    return { ...result, jalwatt: result.jalwatt };
-  }, [result, simulatedJobs, settings.jobsPerDay]);
 
   const chooseSection = (label: Section) => {
     setActive(label);
@@ -228,9 +235,9 @@ export function JalWattApp() {
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
             <div className="hidden items-center gap-2 border-r border-border pr-4 text-xs text-muted-foreground sm:flex"><span className="size-1.5 rounded-full bg-primary" /> Live model</div>
-            <Select value={settings.city} onValueChange={(city) => updateSettings({ city })}>
+            <Select value={settings.city} onValueChange={(city) => updateSettings({ city: city as CityName })}>
               <SelectTrigger aria-label="Select city" className="h-9 w-[130px] border-0 bg-secondary/70 text-xs sm:w-[155px]"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="Bangalore">Bangalore, IN</SelectItem><SelectItem value="Chennai">Chennai, IN</SelectItem><SelectItem value="Mumbai">Mumbai, IN</SelectItem><SelectItem value="Hyderabad">Hyderabad, IN</SelectItem></SelectContent>
+              <SelectContent>{CITY_NAMES.map((city) => <SelectItem key={city} value={city}>{city}, IN</SelectItem>)}</SelectContent>
             </Select>
             <Button variant="outline" size="sm" onClick={exportReport} className="hidden h-9 sm:inline-flex"><Download className="size-4" /> Export</Button>
           </div>
@@ -243,8 +250,8 @@ export function JalWattApp() {
           {active === "Simulator" && <SimulatorView {...{ settings, updateSettings }} />}
           {active === "Scheduler" && <SchedulerView {...{ settings, updateSettings, result }} />}
           {active === "Cooling & ROI" && <CoolingView {...{ settings, updateSettings, result, selectedCooling }} />}
-          {active === "Stress Test" && <StressView {...{ settings, updateSettings, simulatedJobs, setSimulatedJobs }} />}
-          {active === "Data & City" && <DataView {...{ settings, updateHour, updateSettings }} />}
+          {active === "Stress Test" && <StressView {...{ settings, updateSettings, result }} />}
+          {active === "Data & City" && <DataView {...{ settings, updateHour, updateSettings, updateCityProfile, updateFieldVoice, result }} />}
           {active === "Report" && <ReportView {...{ result, exportReport, settings }} />}
           {active === "Assumptions" && <AssumptionsView />}
           <footer className="mt-10 flex flex-col justify-between gap-2 border-t border-border py-4 text-[11px] text-muted-foreground sm:flex-row sm:items-center">
