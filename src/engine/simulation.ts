@@ -5,6 +5,7 @@ import type {
   RunTotals,
   SimulationResult,
   TaskTier,
+  WorkloadGuarantees,
 } from "./types";
 
 function seededRandom(seed: number) {
@@ -24,34 +25,30 @@ function chooseTier(random: () => number, settings: JalWattSettings): TaskTier {
   return "hard";
 }
 
-function scheduledHour(
-  random: () => number,
-  arrival: number,
-  settings: JalWattSettings,
-): number {
+function hourScore(settings: JalWattSettings, hour: number) {
+  // Balanced score favors low-cost hours while giving cooler hours a meaningful influence.
+  return (settings.tariffINR[hour] ?? 0) + (settings.ambientTempC[hour] ?? 0) * 0.08;
+}
+
+function scheduledHour(random: () => number, arrival: number, settings: JalWattSettings): number {
   const lastHour = Math.min(23, arrival + Math.max(0, settings.deadlineHours));
   let chosen = arrival;
   let bestScore = Number.POSITIVE_INFINITY;
   for (let hour = arrival; hour <= lastHour; hour += 1) {
-    // Balanced score favors low-cost hours while giving cooler hours a meaningful influence.
-    const score = (settings.tariffINR[hour] ?? 0) + (settings.ambientTempC[hour] ?? 0) * 0.08;
+    const score = hourScore(settings, hour);
     if (score < bestScore) {
       bestScore = score;
       chosen = hour;
     }
   }
   // Stable seeded tie-breaker keeps equivalent choices reproducible.
-  const candidates = Array.from({ length: lastHour - arrival + 1 }, (_, index) => arrival + index)
-    .filter((hour) => Math.abs((settings.tariffINR[hour] ?? 0) + (settings.ambientTempC[hour] ?? 0) * 0.08 - bestScore) < 0.000001);
-  return candidates.length > 1 ? candidates[Math.floor(random() * candidates.length)] ?? chosen : chosen;
+  const candidates = Array.from({ length: lastHour - arrival + 1 }, (_, index) => arrival + index).filter(
+    (hour) => Math.abs(hourScore(settings, hour) - bestScore) < 0.000001,
+  );
+  return candidates.length > 1 ? (candidates[Math.floor(random() * candidates.length)] ?? chosen) : chosen;
 }
 
-function totals(
-  itByHour: number[],
-  settings: JalWattSettings,
-  pue: number,
-  wue: number,
-): RunTotals {
+function totals(itByHour: number[], settings: JalWattSettings, pue: number, wue: number, slaViolations: number): RunTotals {
   const itKWh = itByHour.reduce((sum, value) => sum + value, 0);
   const facilityKWh = itKWh * pue;
   const waterL = itKWh * wue;
@@ -62,52 +59,105 @@ function totals(
     co2Kg += facility * (settings.gridCO2KgPerKWh[hour] ?? 0);
     costINR += facility * (settings.tariffINR[hour] ?? 0);
   });
-  return { itKWh, facilityKWh, waterL, co2Kg, costINR, slaViolations: 0 };
+  return { itKWh, facilityKWh, waterL, co2Kg, costINR, slaViolations };
 }
+
+const zeros = () => Array.from({ length: 24 }, () => 0);
 
 export function runSimulation(settings: JalWattSettings): SimulationResult {
   const random = seededRandom(settings.seed);
-  const baselineIt = Array.from({ length: 24 }, () => 0);
-  const jalwattIt = Array.from({ length: 24 }, () => 0);
-  const baselineJobs = Array.from({ length: 24 }, () => 0);
-  const jalwattJobs = Array.from({ length: 24 }, () => 0);
+  const baselineIt = zeros();
+  const jalwattIt = zeros();
+  const baselineJobs = zeros();
+  const jalwattJobs = zeros();
+  const routedJobs = zeros();
+  const shiftedJobs = zeros();
   const perTier = Object.fromEntries(
     TIER_NAMES.map((tier) => [tier, { count: 0, baselineWh: 0, jalwattWh: 0 }]),
   ) as Record<TaskTier, { count: number; baselineWh: number; jalwattWh: number }>;
-  const movedCount = { count: 0, energyKWh: 0 };
-  const jobs = Math.max(0, Math.floor(settings.jobsPerDay));
+  const moved = { count: 0, energyKWh: 0 };
+  const guarantees: WorkloadGuarantees = {
+    totalJobs: 0,
+    pinnedJobs: 0,
+    urgentJobs: 0,
+    deferrableJobs: 0,
+    shiftedJobs: 0,
+    pinnedMoved: 0,
+    urgentDelayed: 0,
+    deadlineMisses: 0,
+  };
   const pinnedPct = Math.max(0, Math.min(100, settings.privacyPinnedPct));
   const deferrablePct = Math.max(0, Math.min(100 - pinnedPct, settings.deferrablePct));
+  const largeWh = settings.energyWh.large;
+  const telemetry = settings.telemetry && settings.telemetry.length > 0 ? settings.telemetry : null;
 
-  for (let index = 0; index < jobs; index += 1) {
-    const tier = chooseTier(random, settings);
-    const arrival = Math.min(23, Math.floor(random() * 24));
+  const processJob = (arrival: number, tier: TaskTier, baselineWh: number) => {
     const classification = random() * 100;
     const pinned = classification < pinnedPct;
     const deferrable = !pinned && classification < pinnedPct + deferrablePct;
-    const baselineWh = settings.energyWh.large;
-    const jalwattWh =
+    const tierWh =
       tier === "easy" ? settings.energyWh.small : tier === "medium" ? settings.energyWh.medium : settings.energyWh.large;
+    // With telemetry, the measured per-job energy is the baseline and right-sizing scales it by the tier ratio.
+    const jalwattWh = largeWh > 0 ? baselineWh * (tierWh / largeWh) : tierWh;
     const runHour = deferrable ? scheduledHour(random, arrival, settings) : arrival;
     baselineIt[arrival] = (baselineIt[arrival] ?? 0) + baselineWh / 1000;
     jalwattIt[runHour] = (jalwattIt[runHour] ?? 0) + jalwattWh / 1000;
     baselineJobs[arrival] = (baselineJobs[arrival] ?? 0) + 1;
     jalwattJobs[runHour] = (jalwattJobs[runHour] ?? 0) + 1;
+    if (tier !== "hard") routedJobs[runHour] = (routedJobs[runHour] ?? 0) + 1;
+
+    guarantees.totalJobs += 1;
+    if (pinned) {
+      guarantees.pinnedJobs += 1;
+      if (runHour !== arrival) guarantees.pinnedMoved += 1;
+    } else if (deferrable) {
+      guarantees.deferrableJobs += 1;
+      if (runHour - arrival > settings.deadlineHours) guarantees.deadlineMisses += 1;
+    } else {
+      guarantees.urgentJobs += 1;
+      if (runHour > arrival) guarantees.urgentDelayed += 1;
+    }
 
     const bucket = perTier[tier];
     bucket.count += 1;
     bucket.baselineWh += baselineWh;
     bucket.jalwattWh += jalwattWh;
     if (deferrable && runHour !== arrival) {
-      movedCount.count += 1;
-      movedCount.energyKWh += jalwattWh / 1000;
+      moved.count += 1;
+      moved.energyKWh += jalwattWh / 1000;
+      shiftedJobs[runHour] = (shiftedJobs[runHour] ?? 0) + 1;
+    }
+  };
+
+  if (telemetry) {
+    telemetry.forEach((row) => {
+      const hour = Math.max(0, Math.min(23, Math.floor(row.hour)));
+      const jobs = Math.max(0, Math.floor(row.jobs));
+      const itKWh = Math.max(0, row.itKW); // one-hour row: kW sustained for an hour = kWh
+      if (jobs === 0) {
+        // Idle base load cannot be shifted or right-sized.
+        baselineIt[hour] = (baselineIt[hour] ?? 0) + itKWh;
+        jalwattIt[hour] = (jalwattIt[hour] ?? 0) + itKWh;
+        return;
+      }
+      const perJobWh = (itKWh * 1000) / jobs;
+      for (let index = 0; index < jobs; index += 1) processJob(hour, chooseTier(random, settings), perJobWh);
+    });
+  } else {
+    const jobs = Math.max(0, Math.floor(settings.jobsPerDay));
+    for (let index = 0; index < jobs; index += 1) {
+      const tier = chooseTier(random, settings);
+      const arrival = Math.min(23, Math.floor(random() * 24));
+      processJob(arrival, tier, largeWh);
     }
   }
+  guarantees.shiftedJobs = moved.count;
 
+  const slaViolations = guarantees.pinnedMoved + guarantees.urgentDelayed + guarantees.deadlineMisses;
   const baselineCooling = settings.cooling.evaporative;
   const selectedCooling = settings.cooling[settings.selectedCooling];
-  const baseline = totals(baselineIt, settings, baselineCooling.pue, baselineCooling.wue);
-  const jalwatt = totals(jalwattIt, settings, selectedCooling.pue, selectedCooling.wue);
+  const baseline = totals(baselineIt, settings, baselineCooling.pue, baselineCooling.wue, 0);
+  const jalwatt = totals(jalwattIt, settings, selectedCooling.pue, selectedCooling.wue, slaViolations);
   const hourlyProfile: HourlyProfile[] = Array.from({ length: 24 }, (_, hour) => ({
     hour,
     ambientTempC: settings.ambientTempC[hour] ?? 0,
@@ -116,6 +166,10 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
     jalwattJobs: jalwattJobs[hour] ?? 0,
     baselineKWh: (baselineIt[hour] ?? 0) * baselineCooling.pue,
     jalwattKWh: (jalwattIt[hour] ?? 0) * selectedCooling.pue,
+    routedJobs: routedJobs[hour] ?? 0,
+    shiftedJobs: shiftedJobs[hour] ?? 0,
+    baselineWaterL: (baselineIt[hour] ?? 0) * baselineCooling.wue,
+    jalwattWaterL: (jalwattIt[hour] ?? 0) * selectedCooling.wue,
   }));
 
   const decisionLog: DecisionLogItem[] = TIER_NAMES.map((tier) => {
@@ -138,10 +192,10 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
   });
   decisionLog.push({
     jobGroup: "Flexible workload",
-    action: `${movedCount.count.toLocaleString()} jobs rescheduled`,
+    action: `${moved.count.toLocaleString()} jobs rescheduled`,
     reason: `Moved into the lowest combined tariff and temperature score within ${settings.deadlineHours} hours.`,
     savedKWh: 0,
-    savedINR: movedCount.energyKWh * selectedCooling.pue * 1.25,
+    savedINR: moved.energyKWh * selectedCooling.pue * 1.25,
     tradeoff: "Scheduled before deadline",
   });
   decisionLog.push({
@@ -161,6 +215,7 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
     tradeoff: "Cooling preset applied to the full workload",
   });
 
-  const savingsPct = baseline.facilityKWh > 0 ? ((baseline.facilityKWh - jalwatt.facilityKWh) / baseline.facilityKWh) * 100 : 0;
-  return { baseline, jalwatt, savingsPct, hourlyProfile, decisionLog };
+  const savingsPct =
+    baseline.facilityKWh > 0 ? ((baseline.facilityKWh - jalwatt.facilityKWh) / baseline.facilityKWh) * 100 : 0;
+  return { guarantees, baseline, jalwatt, savingsPct, hourlyProfile, decisionLog };
 }
