@@ -10,6 +10,7 @@ import {
   CircleHelp,
   Cloud,
   Cpu,
+  Gavel,
   Download,
   Droplets,
   Gauge,
@@ -61,6 +62,12 @@ import {
 import { toHouseholdDailyWaterEquivalents } from "@/lib/dashboard-metrics";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_SCENARIO_JOBS, parseJobVolume } from "@/lib/stress-scenario";
+import { AssumptionTag, energy, formatCompact, money, PanelHeading } from "@/components/jalwatt/shared";
+import { PeakLoadPanel } from "@/components/jalwatt/peak-load";
+import { TelemetryBanner, TelemetryUpload } from "@/components/jalwatt/telemetry";
+import { ReportView } from "@/components/jalwatt/report-view";
+import { AssumptionsView } from "@/components/jalwatt/assumptions-view";
+import { DashboardHero, DemoMode, JudgePanel } from "@/components/jalwatt/dashboard-extras";
 
 const sections = [
   { label: "Dashboard", icon: BarChart3 },
@@ -74,9 +81,6 @@ const sections = [
 ] as const;
 
 type Section = (typeof sections)[number]["label"];
-const money = (value: number) => `₹${Math.round(value).toLocaleString("en-IN")}`;
-const energy = (value: number) => `${value.toFixed(2)} kWh`;
-const formatCompact = (value: number) => new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 
 function Metric({
   label,
@@ -113,10 +117,6 @@ function Metric({
   );
 }
 
-function AssumptionTag() {
-  return <span className="inline-flex shrink-0 items-center border border-border px-1.5 py-0.5 text-[9px] font-medium uppercase text-muted-foreground">Assumption</span>;
-}
-
 function SliderField({
   label,
   value,
@@ -146,24 +146,25 @@ function SliderField({
   );
 }
 
-function PanelHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return (
-    <div className="mb-6">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">{eyebrow}</div>
-      <h2 className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">{title}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-    </div>
-  );
-}
-
 export function JalWattApp() {
-  const { settings, updateSettings, updateHour, updateCityProfile, updateFieldVoice, result } = useSettings();
+  const { settings, updateSettings, updateHour, updateCityProfile, updateFieldVoice, result, judgeMode, setJudgeMode } = useSettings();
   const [active, setActive] = useState<Section>("Dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const chooseSection = (label: Section) => {
     setActive(label);
     setMobileNavOpen(false);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  };
+  const toggleJudge = () => {
+    const next = !judgeMode;
+    setJudgeMode(next);
+    if (next) {
+      chooseSection("Dashboard");
+      toast.success("Judge Mode on", { description: "Preset scenario loaded against the problem-statement targets." });
+    } else {
+      toast("Judge Mode off", { description: "Your previous scenario is restored." });
+    }
   };
 
   const exportReport = () => {
@@ -194,7 +195,7 @@ export function JalWattApp() {
   const selectedCooling = settings.cooling[settings.selectedCooling];
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-sidebar-border bg-sidebar lg:flex print:hidden">
         <div className="flex h-[76px] items-center gap-3 border-b border-sidebar-border px-5">
           <div className="grid size-9 place-items-center border border-primary/30 bg-primary/10 text-primary">
             <Droplets className="size-5" />
@@ -226,8 +227,8 @@ export function JalWattApp() {
         </div>
       </aside>
 
-      <div className="min-h-screen lg:pl-60">
-        <header className="sticky top-0 z-20 flex min-h-[76px] items-center justify-between gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-md sm:px-6 lg:px-8">
+      <div className="min-h-screen lg:pl-60 print:pl-0">
+        <header className="sticky top-0 z-20 print:hidden flex min-h-[76px] items-center justify-between gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-md sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Toggle navigation" onClick={() => setMobileNavOpen((open) => !open)}>
               <Menu className="size-5" />
@@ -243,24 +244,32 @@ export function JalWattApp() {
               <SelectTrigger aria-label="Select city" className="h-9 w-[130px] border-0 bg-secondary/70 text-xs sm:w-[155px]"><SelectValue /></SelectTrigger>
               <SelectContent>{CITY_NAMES.map((city) => <SelectItem key={city} value={city}>{city}, IN</SelectItem>)}</SelectContent>
             </Select>
-            <Button variant="outline" size="sm" onClick={exportReport} className="hidden h-9 sm:inline-flex"><Download className="size-4" /> Export</Button>
+            <Button variant={judgeMode ? "default" : "outline"} size="sm" aria-pressed={judgeMode} onClick={toggleJudge} className="h-9" title="Judge Mode"><Gavel className="size-4" /><span className="hidden sm:inline">Judge</span></Button>
+            <Button variant="outline" size="sm" onClick={exportReport} className="hidden h-9 md:inline-flex"><Download className="size-4" /> Export</Button>
           </div>
         </header>
 
-        {mobileNavOpen && <nav className="grid grid-cols-2 gap-1 border-b border-border bg-sidebar p-3 sm:grid-cols-4 lg:hidden" aria-label="Mobile navigation">{sections.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="sm" onClick={() => chooseSection(label)} className={active === label ? "bg-sidebar-accent text-sidebar-accent-foreground" : "justify-start"}><Icon className="size-4" />{label}</Button>)}</nav>}
+        {mobileNavOpen && <nav className="grid grid-cols-2 gap-1 border-b border-border bg-sidebar p-3 sm:grid-cols-4 lg:hidden print:hidden" aria-label="Mobile navigation">{sections.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" size="sm" onClick={() => chooseSection(label)} className={active === label ? "bg-sidebar-accent text-sidebar-accent-foreground" : "justify-start"}><Icon className="size-4" />{label}</Button>)}</nav>}
 
-        <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          {active === "Dashboard" && <DashboardView {...{ settings, result, selectedCooling, chooseSection }} />}
+        <main className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 print:max-w-none print:p-0">
+          <TelemetryBanner onManage={() => chooseSection("Data & City")} />
+          {active === "Dashboard" && <DashboardView {...{ settings, result, selectedCooling, chooseSection, judgeMode, toggleJudge }} />}
           {active === "Simulator" && <SimulatorView {...{ settings, updateSettings }} />}
           {active === "Scheduler" && <SchedulerView {...{ settings, updateSettings, result }} />}
           {active === "Cooling & ROI" && <CoolingView {...{ settings, updateSettings, result, selectedCooling }} />}
           {active === "Stress Test" && <StressView {...{ settings, updateSettings, result }} />}
           {active === "Data & City" && <DataView {...{ settings, updateHour, updateSettings, updateCityProfile, updateFieldVoice, result }} />}
           {active === "Report" && <ReportView {...{ result, exportReport, settings }} />}
-          {active === "Assumptions" && <AssumptionsView />}
-          <footer className="mt-10 flex flex-col justify-between gap-2 border-t border-border py-4 text-[11px] text-muted-foreground sm:flex-row sm:items-center">
-            <span>JalWatt · deterministic workload simulation · {settings.city}</span>
-            <span>All values are modelled estimates, not operational telemetry.</span>
+          {active === "Assumptions" && <AssumptionsView settings={settings} />}
+          <footer className="mt-10 border-t border-border pt-6 pb-4 text-[11px] text-muted-foreground print:mt-6">
+            {judgeMode && <p className="mb-4 border border-primary/30 bg-primary/5 px-3 py-2 text-primary">Simulated results; assumptions listed on the <button type="button" onClick={() => chooseSection("Assumptions")} className="underline underline-offset-2">Assumptions page</button>.</p>}
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-semibold text-foreground"><Droplets className="size-3.5 text-primary" />About JalWatt</div>
+                <p className="mt-1.5 max-w-xl leading-5">A water- and energy-aware scheduler prototype for Indian server rooms running agentic AI workloads. Built at RVCE, Bengaluru.</p>
+              </div>
+              <div className="leading-5 sm:text-right"><div>Deterministic simulation · {settings.city}{settings.telemetry ? " · your telemetry" : ""}</div><div>All values are modelled estimates; nothing leaves your browser.</div></div>
+            </div>
           </footer>
         </main>
       </div>
@@ -268,13 +277,18 @@ export function JalWattApp() {
   );
 }
 
-function DashboardView({ settings, result, selectedCooling, chooseSection }: {
+function DashboardView({ settings, result, selectedCooling, chooseSection, judgeMode, toggleJudge }: {
+  judgeMode: boolean;
+  toggleJudge: () => void;
   settings: ReturnType<typeof useSettings>["settings"];
   result: ReturnType<typeof useSettings>["result"];
   selectedCooling: ReturnType<typeof useSettings>["settings"]["cooling"][CoolingPreset];
   chooseSection: (section: Section) => void;
 }) {
   const [comparison, setComparison] = useState<"baseline" | "jalwatt">("jalwatt");
+  const [demoToken, setDemoToken] = useState(0);
+  const [demoPlaying, setDemoPlaying] = useState(false);
+  const avgCO2 = settings.gridCO2KgPerKWh.reduce((sum, value) => sum + value, 0) / Math.max(1, settings.gridCO2KgPerKWh.length);
   const baseline = result.baseline;
   const optimized = result.jalwatt;
   const current = comparison === "baseline" ? baseline : optimized;
@@ -290,7 +304,7 @@ function DashboardView({ settings, result, selectedCooling, chooseSection }: {
     return points;
   }, []);
   const savingsPercent = (base: number, optimizedValue: number) => base > 0 ? ((base - optimizedValue) / base) * 100 : 0;
-  const averageWatts = (itKWh: number) => settings.jobsPerDay > 0 ? (itKWh * 1000) / settings.jobsPerDay : 0;
+  const averageWatts = (itKWh: number) => result.guarantees.totalJobs > 0 ? (itKWh * 1000) / result.guarantees.totalJobs : 0;
   const metrics = [
     { label: "Energy", value: current.facilityKWh.toFixed(1), unit: "kWh / day", savings: savingsPercent(baseline.facilityKWh, optimized.facilityKWh), icon: Zap, tone: "text-primary" },
     { label: "Water", value: current.waterL.toFixed(1), unit: "litres / day", savings: savingsPercent(baseline.waterL, optimized.waterL), icon: Droplets, tone: "text-chart-2" },
@@ -302,6 +316,9 @@ function DashboardView({ settings, result, selectedCooling, chooseSection }: {
   const totalHouseholds = toHouseholdDailyWaterEquivalents(waterSaved);
 
   return <>
+    <DashboardHero result={result} judgeMode={judgeMode} onToggleJudge={toggleJudge} onPlayDemo={() => setDemoToken((token) => token + 1)} demoPlaying={demoPlaying} />
+    {judgeMode && <JudgePanel settings={settings} result={result} onOpenAssumptions={() => chooseSection("Assumptions")} />}
+    {demoToken > 0 && <DemoMode result={result} city={settings.city} startToken={demoToken} onPlayingChange={setDemoPlaying} />}
     <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary"><span className="size-1.5 rounded-full bg-primary" /> Daily scenario · {settings.city}</div><h2 className="mt-2 text-2xl font-semibold tracking-normal sm:text-3xl">Operational overview</h2><p className="mt-1 text-sm text-muted-foreground">Daily resource use and schedule impact for agentic AI compute.</p></div>
       <div className="flex flex-wrap items-center gap-2">
@@ -309,7 +326,7 @@ function DashboardView({ settings, result, selectedCooling, chooseSection }: {
           <Button variant={comparison === "baseline" ? "secondary" : "ghost"} size="sm" aria-pressed={comparison === "baseline"} onClick={() => setComparison("baseline")} className="h-8 rounded-sm px-3 text-xs">Baseline</Button>
           <Button variant={comparison === "jalwatt" ? "secondary" : "ghost"} size="sm" aria-pressed={comparison === "jalwatt"} onClick={() => setComparison("jalwatt")} className="h-8 rounded-sm px-3 text-xs">JalWatt</Button>
         </div>
-        <span className="border border-border bg-card px-3 py-2 font-mono text-xs text-muted-foreground">{settings.jobsPerDay.toLocaleString("en-IN")} jobs / day</span>
+        <span className="border border-border bg-card px-3 py-2 font-mono text-xs text-muted-foreground">{result.guarantees.totalJobs.toLocaleString("en-IN")} jobs / day</span>
       </div>
     </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
@@ -350,7 +367,7 @@ function DashboardView({ settings, result, selectedCooling, chooseSection }: {
         <div className="mt-5 grid gap-0 divide-y divide-border">
           <div className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><Cpu className="size-3.5" /> IT energy</span><span className="font-mono text-sm">{energy(result.jalwatt.itKWh)}</span></div>
           <div className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><Thermometer className="size-3.5" /> Cooling profile</span><span className="font-mono text-sm capitalize">{settings.selectedCooling} · {selectedCooling.pue.toFixed(2)} PUE</span></div>
-          <div className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><Cloud className="size-3.5" /> CO₂ intensity</span><span className="font-mono text-sm">0.70 kg / kWh</span></div>
+          <div className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><Cloud className="size-3.5" /> CO₂ intensity</span><span className="font-mono text-sm">{avgCO2.toFixed(2)} kg / kWh</span></div>
           <div className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs text-muted-foreground"><ShieldCheck className="size-3.5" /> SLA violations</span><span className="inline-flex items-center gap-1.5 font-mono text-sm text-primary"><span className="size-1.5 rounded-full bg-primary" />{result.jalwatt.slaViolations}</span></div>
         </div>
         <div className="mt-4 border border-primary/20 bg-primary/5 p-3"><div className="text-xs font-medium text-primary">Efficiency signal</div><p className="mt-1 text-xs leading-5 text-muted-foreground">Right-sizing, workload timing and {settings.selectedCooling} cooling reduce facility load together.</p></div>
@@ -467,10 +484,10 @@ function StressView({ settings, updateSettings, result }: { settings: ReturnType
   return <><PanelHeading eyebrow="Capacity planning" title="Stress test" description="Scale task volume to understand resource growth under the current workload mix." />
     <section className="border border-border bg-card p-5 sm:p-6">
       <form className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start" onSubmit={(event) => { event.preventDefault(); run(inputJobs); }}>
-        <div><div className="text-sm font-semibold">Workload scale</div><div className="mt-1 text-xs text-muted-foreground">Type a daily job volume and press Run scenario (or Enter), or pick a preset.</div></div>
-        <div className="grid gap-1.5"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Custom job volume" inputMode="numeric" type="number" value={inputJobs} min={1} max={MAX_SCENARIO_JOBS} onChange={(event) => { setInputJobs(event.target.value); setError(null); }} aria-invalid={error ? true : undefined} className="w-36 font-mono" /><Button type="submit"><Play className="size-4" />Run scenario</Button></div>{error && <div className="text-xs text-destructive" role="alert">{error}</div>}</div>
+        <div><div className="text-sm font-semibold">Workload scale</div><div className="mt-1 text-xs text-muted-foreground">{settings.telemetry ? "Job volume comes from your telemetry. Remove it on Data & City to try other volumes." : "Type a daily job volume and press Run scenario (or Enter), or pick a preset."}</div></div>
+        <div className="grid gap-1.5"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Custom job volume" inputMode="numeric" type="number" value={inputJobs} min={1} max={MAX_SCENARIO_JOBS} onChange={(event) => { setInputJobs(event.target.value); setError(null); }} aria-invalid={error ? true : undefined} className="w-36 font-mono" /><Button type="submit" disabled={Boolean(settings.telemetry)}><Play className="size-4" />Run scenario</Button></div>{error && <div className="text-xs text-destructive" role="alert">{error}</div>}</div>
       </form>
-      <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-5">{levels.map((jobs) => <Button key={jobs} type="button" variant={settings.jobsPerDay === jobs ? "default" : "outline"} onClick={() => run(String(jobs))} className="font-mono">{formatCompact(jobs)} / day</Button>)}</div>
+      <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-5">{levels.map((jobs) => <Button key={jobs} type="button" variant={settings.jobsPerDay === jobs ? "default" : "outline"} onClick={() => run(String(jobs))} disabled={Boolean(settings.telemetry)} className="font-mono">{formatCompact(jobs)} / day</Button>)}</div>
     </section>
     <div ref={resultsRef} className="scroll-mt-24">
       <section key={lastRun?.number ?? 0} className={`mt-5 border bg-card p-5 sm:p-6 ${lastRun ? "border-primary/40 animate-in fade-in-50 duration-500" : "border-border"}`} aria-live="polite">
@@ -481,6 +498,7 @@ function StressView({ settings, updateSettings, result }: { settings: ReturnType
     <section className="mt-5 border border-border bg-card p-4 sm:p-5"><div className="text-sm font-semibold">How resources scale with volume</div><div className="mt-1 text-xs text-muted-foreground">JalWatt results at each volume with the current mix, city and cooling. Highlighted row is the current run.</div>
       <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-xs"><thead><tr className="border-b border-border text-muted-foreground"><th className="px-2 py-3 font-medium">Jobs / day</th><th className="px-2 py-3 text-right font-medium">Energy kWh</th><th className="px-2 py-3 text-right font-medium">Water L</th><th className="px-2 py-3 text-right font-medium">CO₂ kg</th><th className="px-2 py-3 text-right font-medium">Cost / day</th><th className="px-2 py-3 text-right font-medium">Saved vs baseline</th></tr></thead><tbody>{scaling.map(({ jobs, result: row }) => <tr key={jobs} className={`border-b border-border/60 ${jobs === settings.jobsPerDay ? "bg-primary/10 text-primary" : ""}`}><td className="px-2 py-2.5 font-mono">{jobs.toLocaleString("en-IN")}</td><td className="px-2 py-2.5 text-right font-mono">{row.jalwatt.facilityKWh.toFixed(2)}</td><td className="px-2 py-2.5 text-right font-mono">{row.jalwatt.waterL.toFixed(2)}</td><td className="px-2 py-2.5 text-right font-mono">{row.jalwatt.co2Kg.toFixed(2)}</td><td className="px-2 py-2.5 text-right font-mono">{money(row.jalwatt.costINR)}</td><td className="px-2 py-2.5 text-right font-mono">{money(row.baseline.costINR - row.jalwatt.costINR)}</td></tr>)}</tbody></table></div>
     </section>
+    <PeakLoadPanel settings={settings} result={result} />
     <div className="mt-5 border border-border bg-card p-5"><div className="text-sm font-semibold">Model boundary</div><p className="mt-2 max-w-3xl text-xs leading-6 text-muted-foreground">Room and rack capacity are recorded as scenario assumptions, but no capacity threshold or queue-overflow rule is defined. Results report resource scaling without inventing overload or SLA behavior.</p></div>
   </>;
 }
@@ -490,35 +508,11 @@ function DataView({ settings, updateHour, updateSettings, updateCityProfile, upd
   const weightedImpact = waterWeightedImpact(waterSaved, settings.cityProfiles[settings.city].waterStress);
   const stressLevels: WaterStressLevel[] = ["Low", "Med", "High", "Extreme"];
   return <><PanelHeading eyebrow="Local parameters" title="Data & city profile" description="Edit illustrative city conditions and review how local water stress changes the impact estimate." />
+    <TelemetryUpload />
     <section className="border border-border bg-card p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-semibold">Indian city profiles</div><div className="mt-1 text-xs text-muted-foreground">Tariff and grid-carbon values are illustrative defaults; edit them for your scenario.</div></div><AssumptionTag /></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead><tr className="border-b border-border text-muted-foreground"><th className="px-2 py-3 font-medium">City</th><th className="px-2 py-3 font-medium">Water stress</th><th className="px-2 py-3 font-medium">Tariff · INR/kWh</th><th className="px-2 py-3 font-medium">Grid CO₂ · kg/kWh</th><th className="px-2 py-3 font-medium">Use</th></tr></thead><tbody>{CITY_NAMES.map((city) => { const profile = settings.cityProfiles[city]; return <tr key={city} className="border-b border-border/60"><td className="px-2 py-2 font-medium">{city}</td><td className="px-2 py-2"><Select value={profile.waterStress} onValueChange={(waterStress) => updateCityProfile(city, { waterStress: waterStress as WaterStressLevel })}><SelectTrigger aria-label={`${city} water stress`} className="h-8 w-32"><SelectValue /></SelectTrigger><SelectContent>{stressLevels.map((level) => <SelectItem key={level} value={level}>{level}</SelectItem>)}</SelectContent></Select></td><td className="px-2 py-2"><Input aria-label={`${city} illustrative tariff`} type="number" min={0} step="0.1" value={profile.tariffINR} onChange={(event) => updateCityProfile(city, { tariffINR: Math.max(0, Number(event.target.value)) })} className="h-8 w-36 font-mono" /></td><td className="px-2 py-2"><Input aria-label={`${city} illustrative grid carbon`} type="number" min={0} step="0.01" value={profile.gridCO2KgPerKWh} onChange={(event) => updateCityProfile(city, { gridCO2KgPerKWh: Math.max(0, Number(event.target.value)) })} className="h-8 w-36 font-mono" /></td><td className="px-2 py-2"><Button size="sm" variant={settings.city === city ? "default" : "outline"} onClick={() => updateSettings({ city })}>{settings.city === city ? "Selected" : "Select"}</Button></td></tr>; })}</tbody></table></div></section>
     <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.75fr)]"><section className="border border-border bg-card p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-sm font-semibold">Hourly operating assumptions · {settings.city}</div><div className="mt-1 text-xs text-muted-foreground">Temperature is independently editable; city selection applies its tariff and carbon defaults.</div></div><AssumptionTag /></div><div className="mt-4 max-h-[460px] overflow-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="sticky top-0 bg-card"><tr className="border-b border-border text-muted-foreground"><th className="px-2 py-2 font-medium">Hour</th><th className="px-2 py-2 font-medium">Temperature °C</th><th className="px-2 py-2 font-medium">Tariff INR/kWh</th><th className="px-2 py-2 font-medium">Grid CO₂ kg/kWh</th></tr></thead><tbody>{settings.ambientTempC.map((temperature, hour) => <tr key={hour} className="border-b border-border/60"><td className="px-2 py-1.5 font-mono text-muted-foreground">{String(hour).padStart(2, "0")}:00</td><td className="px-2 py-1.5"><Input aria-label={`Temperature hour ${hour}`} type="number" step="0.1" value={temperature} onChange={(event) => updateHour("ambientTempC", hour, Number(event.target.value))} className="h-8 w-28 font-mono" /></td><td className="px-2 py-1.5"><Input aria-label={`Tariff hour ${hour}`} type="number" step="0.1" value={settings.tariffINR[hour]} onChange={(event) => updateHour("tariffINR", hour, Number(event.target.value))} className="h-8 w-28 font-mono" /></td><td className="px-2 py-1.5"><Input aria-label={`Grid carbon hour ${hour}`} type="number" step="0.01" value={settings.gridCO2KgPerKWh[hour]} onChange={(event) => updateHour("gridCO2KgPerKWh", hour, Number(event.target.value))} className="h-8 w-28 font-mono" /></td></tr>)}</tbody></table></div></section>
       <div className="grid content-start gap-5"><section className="border border-primary/30 bg-primary/5 p-5"><div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold">Water-weighted impact</div><AssumptionTag /></div><div className="mt-4 font-mono text-3xl tabular-nums text-primary">{weightedImpact.toLocaleString("en-IN", { maximumFractionDigits: 1 })}<span className="ml-2 text-sm font-sans text-muted-foreground">stress-weighted L/day</span></div><div className="mt-2 text-xs leading-5 text-muted-foreground">{waterSaved.toFixed(1)} L saved × {settings.cityProfiles[settings.city].waterStress.toLowerCase()} stress multiplier.</div></section>
         <section className="border border-border bg-card p-5"><div className="text-sm font-semibold">Voices from the field</div><div className="mt-1 text-xs text-muted-foreground">Add operator observations for this scenario.</div><div className="mt-4 grid gap-4">{settings.fieldVoices.map((voice, index) => <div key={index} className="border-t border-border pt-3"><div className="grid gap-2 sm:grid-cols-2"><Input aria-label={`Field voice ${index + 1} name`} placeholder="Name" value={voice.name} onChange={(event) => updateFieldVoice(index, { name: event.target.value })} /><Input aria-label={`Field voice ${index + 1} role`} placeholder="Role or facility" value={voice.role} onChange={(event) => updateFieldVoice(index, { role: event.target.value })} /></div><Textarea aria-label={`Field voice ${index + 1} quote`} placeholder="A field observation or quote…" value={voice.quote} onChange={(event) => updateFieldVoice(index, { quote: event.target.value })} className="mt-2 min-h-20 text-sm" /></div>)}</div></section></div>
     </div>
   </>;
-}
-
-function ReportView({ result, exportReport, settings }: { result: ReturnType<typeof useSettings>["result"]; exportReport: () => void; settings: ReturnType<typeof useSettings>["settings"] }) {
-  return <><PanelHeading eyebrow="Scenario export" title="Simulation report" description="Compare modeled daily resource use and download the current run." />
-    <section className="border border-border bg-card p-5 sm:p-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="text-sm font-semibold">{settings.city} · {settings.jobsPerDay.toLocaleString("en-IN")} jobs / day</div><div className="mt-1 text-xs text-muted-foreground">Seed {settings.seed} · {settings.selectedCooling} cooling</div></div><Button onClick={exportReport}><Download className="size-4" />Download CSV</Button></div>
-      <div className="mt-6 overflow-x-auto"><table className="w-full min-w-[500px] text-left text-sm"><thead><tr className="border-b border-border text-xs text-muted-foreground"><th className="pb-3 font-medium">Resource</th><th className="pb-3 text-right font-medium">Baseline</th><th className="pb-3 text-right font-medium">JalWatt</th><th className="pb-3 text-right font-medium">Change</th></tr></thead><tbody>{[{ label: "IT energy", baseline: result.baseline.itKWh, jalwatt: result.jalwatt.itKWh, unit: "kWh" }, { label: "Facility energy", baseline: result.baseline.facilityKWh, jalwatt: result.jalwatt.facilityKWh, unit: "kWh" }, { label: "Water use", baseline: result.baseline.waterL, jalwatt: result.jalwatt.waterL, unit: "L" }, { label: "Carbon emissions", baseline: result.baseline.co2Kg, jalwatt: result.jalwatt.co2Kg, unit: "kg CO₂" }, { label: "Energy cost", baseline: result.baseline.costINR, jalwatt: result.jalwatt.costINR, unit: "INR" }].map((item) => <tr key={item.label} className="border-b border-border/60"><td className="py-4">{item.label}</td><td className="py-4 text-right font-mono text-muted-foreground">{item.baseline.toFixed(2)} <span className="text-[10px]">{item.unit}</span></td><td className="py-4 text-right font-mono">{item.jalwatt.toFixed(2)} <span className="text-[10px] text-muted-foreground">{item.unit}</span></td><td className="py-4 text-right font-mono text-primary">{item.baseline > 0 ? ((item.baseline - item.jalwatt) / item.baseline * 100).toFixed(1) : "0.0"}%</td></tr>)}</tbody></table></div>
-      <div className="mt-5 flex flex-wrap gap-6 border-t border-border pt-4 text-xs"><span className="text-muted-foreground">Facility energy savings <strong className="ml-1 font-mono text-primary">{result.savingsPct.toFixed(2)}%</strong></span><span className="text-muted-foreground">SLA violations <strong className="ml-1 font-mono text-primary">{result.jalwatt.slaViolations}</strong></span></div>
-    </section>
-    <section className="mt-5 border border-border bg-card p-5"><div className="text-sm font-semibold">Decision trace</div><div className="mt-3 divide-y divide-border">{result.decisionLog.map((item) => <div key={item.jobGroup} className="grid gap-2 py-3 sm:grid-cols-[180px_1fr_160px]"><span className="text-xs font-medium">{item.jobGroup}</span><span className="text-xs text-muted-foreground">{item.reason}</span><span className="text-xs text-primary sm:text-right">{item.action}</span></div>)}</div></section>
-  </>;
-}
-
-function AssumptionsView() {
-  const rows = [
-    ["Work volume", "5,000 tasks per day; mix is sampled from 50% easy, 30% medium, 20% hard."],
-    ["Task energy", "Small 0.3 Wh; medium 1.5 Wh; large 6 Wh per task."],
-    ["Classification", "Privacy-pinned work stays local and runs at arrival; deferrable work uses the configured share; remaining jobs are urgent."],
-    ["Scheduling", "Flexible tasks choose the lowest combined score (tariff + 0.08 × ambient temperature) from arrival through the deadline window."],
-    ["Cooling", "Baseline uses evaporative cooling (PUE 1.5, WUE 1.8); JalWatt uses the selected cooling preset."],
-    ["Resource formulas", "Facility kWh = IT kWh × PUE. Water L = IT kWh × WUE. CO₂ = facility kWh × hourly grid factor. Cost = hourly facility kWh × tariff."],
-    ["Reproducibility", "A seeded pseudo-random generator assigns task tiers, arrival hours and scheduling tie-breaks."],
-    ["Capacity", "Room and rack kW are retained as planning inputs; no capacity exceedance or queueing behavior is modeled."],
-    ["SLA", "All jobs complete within their allowed window; the simulation reports zero SLA violations."],
-  ];
-  return <><PanelHeading eyebrow="Model documentation" title="Assumptions & methodology" description="The rules and boundaries behind every estimate." /><section className="max-w-4xl border border-border bg-card px-5"><div className="divide-y divide-border">{rows.map(([title, detail]) => <div key={title} className="grid gap-2 py-4 sm:grid-cols-[180px_1fr]"><div className="text-xs font-semibold">{title}</div><p className="text-xs leading-5 text-muted-foreground">{detail}</p></div>)}</div></section><div className="mt-5 max-w-4xl border border-chart-3/30 bg-chart-3/5 p-4 text-xs leading-5 text-muted-foreground"><span className="font-medium text-chart-3">Important:</span> Model estimates are illustrative and do not represent measured facility performance or guaranteed utility savings.</div></>;
 }

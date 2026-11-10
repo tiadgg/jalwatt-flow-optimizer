@@ -32,3 +32,5 @@ use the editor.
 ## Application structure
 
 - Keep workload simulation, city-profile transforms, and ROI/resource calculations deterministic and side-effect-free in `src/engine`; expose editable scenario state through a client-side React context, because JalWatt is intentionally backend-free.
+- Put each feature's UI in `src/components/jalwatt/*` (shared helpers in `shared.tsx`) and keep `jalwatt-app.tsx` as the shell and page switcher, so the single app file stays editable.
+- Parse uploaded files with pure helpers in `src/lib` and keep them in browser memory only; never add network calls for user data, because JalWatt promises data never leaves the browser.

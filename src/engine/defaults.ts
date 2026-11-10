@@ -31,4 +31,5 @@ export const DEFAULT_SETTINGS: JalWattSettings = {
   tariffINR: hourCurve([6.5, 6.5, 6.5, 6.5, 6.5, 6.5, 6.5, 6.5, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 6.5, 6.5, 6.5]),
   gridCO2KgPerKWh: hourCurve(Array.from({ length: 24 }, () => 0.7)),
   deadlineHours: 6,
+  telemetry: null,
 };
