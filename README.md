@@ -1,4 +1,4 @@
-# Remix of Remix of Remix of Remix of JalWatt Green Scheduler
+ JalWatt Green Scheduler
 
 Build "JalWatt", a React + TypeScript + Tailwind + Recharts web app: a water- and energy-aware scheduler for Indian server rooms running agentic AI workloads. No backend; everything runs client-side. Dark, clean, professional dashboard; fully mobile responsive. Left sidebar nav: Dashboard, Simulator, Scheduler, Cooling & ROI, Stress Test, Data & City, Report, Assumptions.
 
