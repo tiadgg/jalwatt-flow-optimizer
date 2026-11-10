@@ -31,7 +31,7 @@ export function ReportView({ settings, result, exportReport }: { settings: JalWa
     ["Deferrable / privacy-pinned", `${settings.deferrablePct}% / ${settings.privacyPinnedPct}%`],
     ["Deadline window", `${settings.deadlineHours} h`],
     ["Room / rack capacity", `${settings.roomKW} kW / ${settings.rackKW} kW`],
-    ["Cooling", `${settings.selectedCooling} · PUE ${cooling.pue} · WUE ${cooling.wue}`],
+    ["Cooling", `${settings.selectedCooling[0]?.toUpperCase()}${settings.selectedCooling.slice(1)} · PUE ${cooling.pue} · WUE ${cooling.wue}`],
     ["Seed", String(settings.seed)],
   ];
   const assumptions = buildAssumptionRows(settings);
@@ -53,7 +53,7 @@ export function ReportView({ settings, result, exportReport }: { settings: JalWa
 
       <ReportSection title="1. Scenario inputs">
         <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-          {inputs.map(([label, value]) => <div key={label} className="border-b border-border/60 pb-2"><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-0.5 font-mono text-sm capitalize">{value}</dd></div>)}
+          {inputs.map(([label, value]) => <div key={label} className="border-b border-border/60 pb-2"><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-0.5 font-mono text-sm">{value}</dd></div>)}
         </dl>
       </ReportSection>
 
