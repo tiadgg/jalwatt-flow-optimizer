@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Activity,
   ArrowDownRight,
@@ -51,6 +52,7 @@ import {
   calculateSaasBenefit,
   CITY_NAMES,
   DEFAULT_SETTINGS,
+  runSimulation,
   waterWeightedImpact,
   type CityName,
   type CoolingPreset,
@@ -58,6 +60,7 @@ import {
 } from "@/engine";
 import { toHouseholdDailyWaterEquivalents } from "@/lib/dashboard-metrics";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_SCENARIO_JOBS, parseJobVolume } from "@/lib/stress-scenario";
 
 const sections = [
   { label: "Dashboard", icon: BarChart3 },
@@ -184,7 +187,8 @@ export function JalWattApp() {
     anchor.href = url;
     anchor.download = "jalwatt-simulation-report.csv";
     anchor.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast.success("Report downloaded", { description: "jalwatt-simulation-report.csv" });
   };
 
   const selectedCooling = settings.cooling[settings.selectedCooling];
@@ -375,7 +379,7 @@ function SimulatorView({ settings, updateSettings }: { settings: ReturnType<type
   return <>
     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
       <PanelHeading eyebrow="Scenario controls" title="Workload simulator" description="Tune your daily workload and model routing assumptions. Results update live across every page." />
-      <Button variant="outline" onClick={() => updateSettings(structuredClone(DEFAULT_SETTINGS))} className="shrink-0">Reset to defaults</Button>
+      <Button variant="outline" onClick={() => { updateSettings(structuredClone(DEFAULT_SETTINGS)); toast.success("All settings reset to defaults"); }} className="shrink-0">Reset to defaults</Button>
     </div>
     <div className="grid gap-6 xl:grid-cols-2">
       <section className="border border-border bg-card p-5"><div className="mb-5 text-sm font-semibold">Workload profile</div><div className="grid gap-5"><SliderField label="Jobs per day" value={settings.jobsPerDay} suffix="jobs" min={0} max={100000} step={500} onChange={(jobsPerDay) => updateSettings({ jobsPerDay })} /><SliderField label="Easy task share" value={settings.mix.easy} suffix="%" max={100} onChange={(easy) => updateSettings({ mix: { ...settings.mix, easy } })} /><SliderField label="Medium task share" value={settings.mix.medium} suffix="%" max={100} onChange={(medium) => updateSettings({ mix: { ...settings.mix, medium } })} /><SliderField label="Hard task share" value={settings.mix.hard} suffix="%" max={100} onChange={(hard) => updateSettings({ mix: { ...settings.mix, hard } })} /></div><p className="mt-4 text-xs text-muted-foreground">Mix total: {settings.mix.easy + settings.mix.medium + settings.mix.hard}% · Shares are normalized by the simulator.</p></section>
@@ -390,7 +394,7 @@ function SimulatorView({ settings, updateSettings }: { settings: ReturnType<type
 
 function SchedulerView({ settings, updateSettings, result }: { settings: ReturnType<typeof useSettings>["settings"]; updateSettings: ReturnType<typeof useSettings>["updateSettings"]; result: ReturnType<typeof useSettings>["result"] }) {
   const [actionFilter, setActionFilter] = useState("All actions");
-  const actionType = (jobGroup: string) => jobGroup.includes("model routing") ? "Model routing" : jobGroup.includes("workload") ? "Scheduling" : jobGroup.includes("Cooling") ? "Cooling" : "Policy";
+  const actionType = (jobGroup: string) => jobGroup.includes("Privacy") ? "Policy" : jobGroup.includes("model routing") ? "Model routing" : jobGroup.includes("workload") ? "Scheduling" : jobGroup.includes("Cooling") ? "Cooling" : "Policy";
   const decisions = result.decisionLog.filter((item) => actionFilter === "All actions" || actionType(item.jobGroup) === actionFilter);
   const hasViolations = result.jalwatt.slaViolations > 0;
   return <><PanelHeading eyebrow="Queue policy" title="Flexible workload scheduler" description="Move eligible work into favorable windows without delaying urgent or privacy-sensitive tasks." />
@@ -430,14 +434,53 @@ function CoolingView({ settings, updateSettings, result }: { settings: ReturnTyp
 function StressView({ settings, updateSettings, result }: { settings: ReturnType<typeof useSettings>["settings"]; updateSettings: ReturnType<typeof useSettings>["updateSettings"]; result: ReturnType<typeof useSettings>["result"] }) {
   const levels = [5000, 10000, 25000, 50000, 100000];
   const [inputJobs, setInputJobs] = useState(String(settings.jobsPerDay));
-  const run = (requested: number) => {
-    const jobs = Math.min(1000000, Math.max(0, Math.floor(Number.isFinite(requested) ? requested : settings.jobsPerDay)));
-    updateSettings({ jobsPerDay: jobs });
-    setInputJobs(String(jobs));
+  const [error, setError] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<{ number: number; jobs: number; previousJobs: number; time: string } | null>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const run = (requested: string) => {
+    const parsed = parseJobVolume(requested);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      toast.error(parsed.error);
+      return;
+    }
+    setError(null);
+    const previousJobs = settings.jobsPerDay;
+    updateSettings({ jobsPerDay: parsed.jobs });
+    setInputJobs(String(parsed.jobs));
+    setLastRun((current) => ({ number: (current?.number ?? 0) + 1, jobs: parsed.jobs, previousJobs, time: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) }));
+    toast.success(`Scenario ran for ${parsed.jobs.toLocaleString("en-IN")} jobs / day`);
+    requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
+  const scaling = useMemo(() => {
+    const volumes = Array.from(new Set([...levels, settings.jobsPerDay])).sort((a, b) => a - b);
+    return volumes.map((jobs) => ({ jobs, result: jobs === settings.jobsPerDay ? result : runSimulation({ ...settings, jobsPerDay: jobs }) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, result]);
+  const pct = (baseline: number, jalwatt: number) => (baseline > 0 ? ((baseline - jalwatt) / baseline) * 100 : 0);
+  const metrics = [
+    { label: "Facility energy", baseline: result.baseline.facilityKWh, jalwatt: result.jalwatt.facilityKWh, unit: "kWh / day", digits: 2 },
+    { label: "Water", baseline: result.baseline.waterL, jalwatt: result.jalwatt.waterL, unit: "litres / day", digits: 2 },
+    { label: "CO₂", baseline: result.baseline.co2Kg, jalwatt: result.jalwatt.co2Kg, unit: "kg / day", digits: 2 },
+    { label: "Energy cost", baseline: result.baseline.costINR, jalwatt: result.jalwatt.costINR, unit: "INR / day", digits: 0 },
+  ];
   return <><PanelHeading eyebrow="Capacity planning" title="Stress test" description="Scale task volume to understand resource growth under the current workload mix." />
-    <section className="border border-border bg-card p-5 sm:p-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="text-sm font-semibold">Workload scale</div><div className="mt-1 text-xs text-muted-foreground">Choose a daily job volume and run the recalculated scenario.</div></div><div className="flex flex-wrap items-center gap-2"><Input aria-label="Custom job volume" type="number" value={inputJobs} min={0} max={1000000} onChange={(event) => setInputJobs(event.target.value)} className="w-36 font-mono" /><Button onClick={() => run(Number(inputJobs))}><Play className="size-4" />Run scenario</Button></div></div><div className="mt-3 text-xs text-primary" role="status" aria-live="polite">Current run: {settings.jobsPerDay.toLocaleString("en-IN")} jobs / day</div><div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-5">{levels.map((jobs) => <Button key={jobs} variant={settings.jobsPerDay === jobs ? "default" : "outline"} onClick={() => run(jobs)} className="font-mono">{formatCompact(jobs)} / day</Button>)}</div></section>
-    <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ label: "JalWatt facility energy", value: result.jalwatt.facilityKWh.toFixed(2), unit: "kWh / day" }, { label: "JalWatt water", value: result.jalwatt.waterL.toFixed(2), unit: "litres / day" }, { label: "JalWatt CO₂", value: result.jalwatt.co2Kg.toFixed(2), unit: "kg / day" }, { label: "SLA violations", value: String(result.jalwatt.slaViolations), unit: "per day" }].map((item) => <div key={item.label} className="border border-border bg-card p-4"><div className="text-xs text-muted-foreground">{item.label}</div><div className="mt-3 font-mono text-2xl">{item.value}</div><div className="mt-1 text-[10px] text-muted-foreground">{item.unit}</div></div>)}</div>
+    <section className="border border-border bg-card p-5 sm:p-6">
+      <form className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start" onSubmit={(event) => { event.preventDefault(); run(inputJobs); }}>
+        <div><div className="text-sm font-semibold">Workload scale</div><div className="mt-1 text-xs text-muted-foreground">Type a daily job volume and press Run scenario (or Enter), or pick a preset.</div></div>
+        <div className="grid gap-1.5"><div className="flex flex-wrap items-center gap-2"><Input aria-label="Custom job volume" inputMode="numeric" type="number" value={inputJobs} min={1} max={MAX_SCENARIO_JOBS} onChange={(event) => { setInputJobs(event.target.value); setError(null); }} aria-invalid={error ? true : undefined} className="w-36 font-mono" /><Button type="submit"><Play className="size-4" />Run scenario</Button></div>{error && <div className="text-xs text-destructive" role="alert">{error}</div>}</div>
+      </form>
+      <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-5">{levels.map((jobs) => <Button key={jobs} type="button" variant={settings.jobsPerDay === jobs ? "default" : "outline"} onClick={() => run(String(jobs))} className="font-mono">{formatCompact(jobs)} / day</Button>)}</div>
+    </section>
+    <div ref={resultsRef} className="scroll-mt-24">
+      <section key={lastRun?.number ?? 0} className={`mt-5 border bg-card p-5 sm:p-6 ${lastRun ? "border-primary/40 animate-in fade-in-50 duration-500" : "border-border"}`} aria-live="polite">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-semibold">Scenario results · {settings.jobsPerDay.toLocaleString("en-IN")} jobs / day</div><div className="mt-1 text-xs text-muted-foreground" role="status">{lastRun ? `Run #${lastRun.number} at ${lastRun.time} · previous volume ${lastRun.previousJobs.toLocaleString("en-IN")} jobs / day` : "Showing the current scenario. Press Run scenario to recalculate at a new volume."}</div></div><span className={`border px-2 py-1 font-mono text-[10px] ${result.jalwatt.slaViolations > 0 ? "border-destructive/40 text-destructive" : "border-primary/30 text-primary"}`}>SLA violations: {result.jalwatt.slaViolations}</span></div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metrics.map((item) => <div key={item.label} className="border border-border p-4"><div className="text-xs text-muted-foreground">JalWatt {item.label}</div><div className="mt-3 font-mono text-2xl tabular-nums">{item.digits === 0 ? money(item.jalwatt) : item.jalwatt.toFixed(item.digits)}</div><div className="mt-1 text-[10px] text-muted-foreground">{item.unit} · baseline {item.digits === 0 ? money(item.baseline) : item.baseline.toFixed(item.digits)}</div><div className="mt-2 inline-flex border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">{pct(item.baseline, item.jalwatt).toFixed(1)}% saved</div></div>)}</div>
+      </section>
+    </div>
+    <section className="mt-5 border border-border bg-card p-4 sm:p-5"><div className="text-sm font-semibold">How resources scale with volume</div><div className="mt-1 text-xs text-muted-foreground">JalWatt results at each volume with the current mix, city and cooling. Highlighted row is the current run.</div>
+      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-left text-xs"><thead><tr className="border-b border-border text-muted-foreground"><th className="px-2 py-3 font-medium">Jobs / day</th><th className="px-2 py-3 text-right font-medium">Energy kWh</th><th className="px-2 py-3 text-right font-medium">Water L</th><th className="px-2 py-3 text-right font-medium">CO₂ kg</th><th className="px-2 py-3 text-right font-medium">Cost / day</th><th className="px-2 py-3 text-right font-medium">Saved vs baseline</th></tr></thead><tbody>{scaling.map(({ jobs, result: row }) => <tr key={jobs} className={`border-b border-border/60 ${jobs === settings.jobsPerDay ? "bg-primary/10 text-primary" : ""}`}><td className="px-2 py-2.5 font-mono">{jobs.toLocaleString("en-IN")}</td><td className="px-2 py-2.5 text-right font-mono">{row.jalwatt.facilityKWh.toFixed(2)}</td><td className="px-2 py-2.5 text-right font-mono">{row.jalwatt.waterL.toFixed(2)}</td><td className="px-2 py-2.5 text-right font-mono">{row.jalwatt.co2Kg.toFixed(2)}</td><td className="px-2 py-2.5 text-right font-mono">{money(row.jalwatt.costINR)}</td><td className="px-2 py-2.5 text-right font-mono">{money(row.baseline.costINR - row.jalwatt.costINR)}</td></tr>)}</tbody></table></div>
+    </section>
     <div className="mt-5 border border-border bg-card p-5"><div className="text-sm font-semibold">Model boundary</div><p className="mt-2 max-w-3xl text-xs leading-6 text-muted-foreground">Room and rack capacity are recorded as scenario assumptions, but no capacity threshold or queue-overflow rule is defined. Results report resource scaling without inventing overload or SLA behavior.</p></div>
   </>;
 }
