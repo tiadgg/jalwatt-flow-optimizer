@@ -34,7 +34,7 @@ function scheduledHour(
   let bestScore = Number.POSITIVE_INFINITY;
   for (let hour = arrival; hour <= lastHour; hour += 1) {
     // Balanced score favors low-cost hours while giving cooler hours a meaningful influence.
-    const score = settings.tariffINR[hour] + settings.ambientTempC[hour] * 0.08;
+    const score = (settings.tariffINR[hour] ?? 0) + (settings.ambientTempC[hour] ?? 0) * 0.08;
     if (score < bestScore) {
       bestScore = score;
       chosen = hour;
@@ -42,7 +42,7 @@ function scheduledHour(
   }
   // Stable seeded tie-breaker keeps equivalent choices reproducible.
   const candidates = Array.from({ length: lastHour - arrival + 1 }, (_, index) => arrival + index)
-    .filter((hour) => Math.abs(settings.tariffINR[hour] + settings.ambientTempC[hour] * 0.08 - bestScore) < 0.000001);
+    .filter((hour) => Math.abs((settings.tariffINR[hour] ?? 0) + (settings.ambientTempC[hour] ?? 0) * 0.08 - bestScore) < 0.000001);
   return candidates.length > 1 ? candidates[Math.floor(random() * candidates.length)] ?? chosen : chosen;
 }
 
@@ -59,8 +59,8 @@ function totals(
   let costINR = 0;
   itByHour.forEach((it, hour) => {
     const facility = it * pue;
-    co2Kg += facility * settings.gridCO2KgPerKWh[hour];
-    costINR += facility * settings.tariffINR[hour];
+    co2Kg += facility * (settings.gridCO2KgPerKWh[hour] ?? 0);
+    costINR += facility * (settings.tariffINR[hour] ?? 0);
   });
   return { itKWh, facilityKWh, waterL, co2Kg, costINR, slaViolations: 0 };
 }
