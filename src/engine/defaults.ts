@@ -1,10 +1,19 @@
 import type { JalWattSettings } from "./types";
+import { CITY_PROFILE_DEFAULTS } from "./cities";
 
 const hourCurve = (values: number[]) => values;
 
 export const DEFAULT_SETTINGS: JalWattSettings = {
   seed: 290114,
   city: "Bangalore",
+  cityProfiles: structuredClone(CITY_PROFILE_DEFAULTS),
+  capexINRPerKW: { liquid: 25000, dry: 18000 },
+  saasFeePer100KW: 15000,
+  fieldVoices: [
+    { name: "", role: "", quote: "" },
+    { name: "", role: "", quote: "" },
+    { name: "", role: "", quote: "" },
+  ],
   jobsPerDay: 5000,
   mix: { easy: 50, medium: 30, hard: 20 },
   deferrablePct: 40,

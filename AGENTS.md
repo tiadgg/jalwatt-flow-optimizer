@@ -31,4 +31,4 @@ use the editor.
 
 ## Application structure
 
-- Keep workload simulation deterministic and side-effect-free in `src/engine`; expose shared scenario state through a client-side React context, because JalWatt is intentionally backend-free.
+- Keep workload simulation, city-profile transforms, and ROI/resource calculations deterministic and side-effect-free in `src/engine`; expose editable scenario state through a client-side React context, because JalWatt is intentionally backend-free.
