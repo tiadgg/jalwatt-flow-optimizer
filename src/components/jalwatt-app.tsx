@@ -416,7 +416,7 @@ function CoolingView({ settings, updateSettings, result }: { settings: ReturnTyp
   const options: { id: CoolingPreset; name: string }[] = [{ id: "evaporative", name: "Evaporative" }, { id: "liquid", name: "Liquid closed-loop" }, { id: "dry", name: "Dry exchanger" }];
   const itKWhByHour = result.hourlyProfile.map((hour) => settings.cooling[settings.selectedCooling].pue > 0 ? hour.jalwattKWh / settings.cooling[settings.selectedCooling].pue : 0);
   const impacts = Object.fromEntries(options.map(({ id }) => [id, calculateCoolingImpact(itKWhByHour, settings, id)])) as Record<CoolingPreset, ReturnType<typeof calculateCoolingImpact>>;
-  const annualSavings = Object.fromEntries(options.filter(({ id }) => id !== "evaporative").map(({ id }) => [id, calculateCoolingPayback(settings.capexINRPerKW[id], settings.roomKW, impacts.evaporative.costINR, impacts[id].costINR)])) as Record<"liquid" | "dry", ReturnType<typeof calculateCoolingPayback>>;
+  const annualSavings = Object.fromEntries((["liquid", "dry"] as const).map((id) => [id, calculateCoolingPayback(settings.capexINRPerKW[id], settings.roomKW, impacts.evaporative.costINR, impacts[id].costINR)])) as Record<"liquid" | "dry", ReturnType<typeof calculateCoolingPayback>>;
   const currentMonthlySavings = Math.max(0, result.baseline.costINR - result.jalwatt.costINR) * 30;
   const saas = calculateSaasBenefit(currentMonthlySavings, settings.saasFeePer100KW * settings.roomKW / 100);
   const meetsTarget = (preset: CoolingPreset) => settings.cooling[preset].pue < 1.2 && settings.cooling[preset].wue < 0.2;
