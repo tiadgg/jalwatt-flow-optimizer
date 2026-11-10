@@ -69,6 +69,8 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
   const random = seededRandom(settings.seed);
   const baselineIt = Array.from({ length: 24 }, () => 0);
   const jalwattIt = Array.from({ length: 24 }, () => 0);
+  const baselineJobs = Array.from({ length: 24 }, () => 0);
+  const jalwattJobs = Array.from({ length: 24 }, () => 0);
   const perTier = Object.fromEntries(
     TIER_NAMES.map((tier) => [tier, { count: 0, baselineWh: 0, jalwattWh: 0 }]),
   ) as Record<TaskTier, { count: number; baselineWh: number; jalwattWh: number }>;
@@ -89,6 +91,8 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
     const runHour = deferrable ? scheduledHour(random, arrival, settings) : arrival;
     baselineIt[arrival] = (baselineIt[arrival] ?? 0) + baselineWh / 1000;
     jalwattIt[runHour] = (jalwattIt[runHour] ?? 0) + jalwattWh / 1000;
+    baselineJobs[arrival] = (baselineJobs[arrival] ?? 0) + 1;
+    jalwattJobs[runHour] = (jalwattJobs[runHour] ?? 0) + 1;
 
     const bucket = perTier[tier];
     bucket.count += 1;
@@ -108,6 +112,8 @@ export function runSimulation(settings: JalWattSettings): SimulationResult {
     hour,
     ambientTempC: settings.ambientTempC[hour] ?? 0,
     tariffINR: settings.tariffINR[hour] ?? 0,
+    baselineJobs: baselineJobs[hour] ?? 0,
+    jalwattJobs: jalwattJobs[hour] ?? 0,
     baselineKWh: (baselineIt[hour] ?? 0) * baselineCooling.pue,
     jalwattKWh: (jalwattIt[hour] ?? 0) * selectedCooling.pue,
   }));

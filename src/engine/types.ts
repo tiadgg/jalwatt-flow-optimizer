@@ -1,5 +1,19 @@
 export type CoolingPreset = "evaporative" | "liquid" | "dry";
 export type TaskTier = "easy" | "medium" | "hard";
+export type CityName = "Bangalore" | "Chennai" | "Pune" | "Mumbai" | "Hyderabad";
+export type WaterStressLevel = "Low" | "Med" | "High" | "Extreme";
+
+export interface CityProfile {
+  waterStress: WaterStressLevel;
+  tariffINR: number;
+  gridCO2KgPerKWh: number;
+}
+
+export interface FieldQuote {
+  name: string;
+  role: string;
+  quote: string;
+}
 
 export interface CoolingProfile {
   pue: number;
@@ -8,7 +22,11 @@ export interface CoolingProfile {
 
 export interface JalWattSettings {
   seed: number;
-  city: string;
+  city: CityName;
+  cityProfiles: Record<CityName, CityProfile>;
+  capexINRPerKW: { liquid: number; dry: number };
+  saasFeePer100KW: number;
+  fieldVoices: FieldQuote[];
   jobsPerDay: number;
   mix: Record<TaskTier, number>;
   deferrablePct: number;
@@ -37,6 +55,8 @@ export interface HourlyProfile {
   hour: number;
   ambientTempC: number;
   tariffINR: number;
+  baselineJobs: number;
+  jalwattJobs: number;
   baselineKWh: number;
   jalwattKWh: number;
 }
