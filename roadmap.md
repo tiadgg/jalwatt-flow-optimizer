@@ -6,3 +6,11 @@
 - [x] Fix the Stress Test Run scenario action so entered volume updates results and displayed state.
 - [x] Add focused tests for new deterministic calculations and verify the preview.
 - [x] Audit every button and input across pages; make Run scenario give visible results and feedback.
+- [ ] Stress Test "Run peak load" (4h, 2x jobs, rack at max kW) with animated metrics, W/task chart, PASS/FAIL criteria.
+- [ ] Telemetry CSV upload (hour, itKW, ambientC, jobs), client-side only, sample CSV, "Using your telemetry" banner.
+- [ ] Print-friendly Report with inputs, results, charts, decision log, assumptions, limitations, roadmap, Download PDF.
+- [ ] Assumptions page listing every constant with Assumption / To verify labels.
+- [ ] Dashboard hero with live stat badges.
+- [ ] Demo Mode: animated 24-hour day with ticking counters.
+- [ ] Judge Mode: preset hitting PUE<1.2, WUE<0.2, 20–30% saving; green-tick checklist; footer note.
+- [ ] Polish: spacing, loading states, favicon, About footer (RVCE Bengaluru; name pending from user).
