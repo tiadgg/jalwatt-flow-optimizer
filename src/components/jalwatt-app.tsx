@@ -114,7 +114,7 @@ function SliderField({
   value: number;
   suffix?: string;
   min?: number;
-  max?: number;
+  max: number;
   step?: number;
   onChange: (next: number) => void;
 }) {
