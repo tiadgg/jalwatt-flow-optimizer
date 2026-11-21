@@ -14,3 +14,4 @@
 - [x] Demo Mode: animated 24-hour day with ticking counters.
 - [x] Judge Mode: preset hitting PUE<1.2, WUE<0.2, 20–30% saving; green-tick checklist; footer note.
 - [x] Polish: spacing, loading states, favicon, About footer (RVCE Bengaluru; personal name still to be supplied by user).
+- [ ] Add Replay page with browser-only CSV validation, synthetic seeded sample, model comparison metrics, measured-load savings estimate, and tests.

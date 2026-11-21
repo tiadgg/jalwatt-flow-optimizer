@@ -18,6 +18,7 @@ import {
   Menu,
   Network,
   Play,
+  RotateCcw,
   ShieldCheck,
   SlidersHorizontal,
   Thermometer,
@@ -67,6 +68,7 @@ import { AssumptionTag, energy, formatCompact, money, PanelHeading } from "@/com
 import { PeakLoadPanel } from "@/components/jalwatt/peak-load";
 import { TelemetryBanner, TelemetryUpload } from "@/components/jalwatt/telemetry";
 import { ReportView } from "@/components/jalwatt/report-view";
+import { ReplayView } from "@/components/jalwatt/replay-view";
 import { AssumptionsView } from "@/components/jalwatt/assumptions-view";
 import { DashboardHero, DemoMode, JudgePanel } from "@/components/jalwatt/dashboard-extras";
 
@@ -77,6 +79,7 @@ const sections = [
   { label: "Cooling & ROI", icon: Droplets },
   { label: "Stress Test", icon: Gauge },
   { label: "Data & City", icon: Network },
+  { label: "Replay", icon: RotateCcw },
   { label: "Report", icon: Download },
   { label: "Assumptions", icon: CircleHelp },
 ] as const;
@@ -260,6 +263,7 @@ export function JalWattApp() {
           {active === "Cooling & ROI" && <CoolingView {...{ settings, updateSettings, result, selectedCooling }} />}
           {active === "Stress Test" && <StressView {...{ settings, updateSettings, result }} />}
           {active === "Data & City" && <DataView {...{ settings, updateHour, updateSettings, updateCityProfile, updateFieldVoice, result }} />}
+          {active === "Replay" && <ReplayView settings={settings} result={result} />}
           {active === "Report" && <ReportView {...{ result, exportReport, settings }} />}
           {active === "Assumptions" && <AssumptionsView settings={settings} />}
           <footer className="mt-10 border-t border-border pt-6 pb-4 text-[11px] text-muted-foreground print:mt-6">
